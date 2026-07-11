@@ -11,12 +11,12 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "George Ayensu" }]
 
-# Phase-1 dependencies only. Later phases add: anthropic (Phase 4),
-# flloat/ltlf2dfa (Phase 2), matplotlib/scipy/statsmodels (Phase 6).
+# Later phases add: anthropic (Phase 4), matplotlib/scipy/statsmodels (Phase 6).
 dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.5",
     "pydantic-settings>=2.1",
+    "flloat>=0.3.0",
 ]
 
 [project.optional-dependencies]

@@ -50,17 +50,48 @@ In practice, this system evaluates **finite** robot command sequences - a
 command completes (or is rejected) rather than running forever - which is
 the domain LTLf (finite-trace LTL) is designed for.
 
-**Decision (to be finalized in Phase 2):** evaluate `flloat` (pure-Python
-LTLf, pip-installable) against `spot` (canonical LTL-to-Buchi-automaton
-toolkit, but Linux/conda-oriented with weak native Windows support - the
-development machine for this repository is Windows) and `ltlf2dfa`. Current
-expectation is to adopt LTLf via `flloat` for both practical (cross-platform,
-pure Python) and methodological (finite-horizon domain fit) reasons, while
-keeping the safety-rule YAML syntax visually close to standard LTL notation
-(`G`, `F`, `U`, `X`) since the finite-trace and infinite-trace operators
-share the same syntax and differ only in semantics over finite vs. infinite
-traces. This section will be updated with the final decision and rationale
-once Phase 2 is implemented and benchmarked.
+**Decision: LTLf via `flloat`.** Three candidates were evaluated directly
+against this repository's actual (Windows) development environment, not
+just on paper:
+
+- `spot` - the canonical LTL-to-Buchi-automaton toolkit, but it has **no
+  PyPI distribution at all** (`pip index versions spot` returns no match on
+  Windows); it is distributed via conda-forge or built from source, and is
+  Linux/macOS-oriented. Adopting it would mean requiring contributors to run
+  this research code inside WSL or a conda environment - a real setup cost
+  for a single-machine student project - for a formalism (infinite-trace
+  LTL) that is arguably the wrong fit anyway (see below).
+- `ltlf2dfa` - LTLf-native, but its DFA translation shells out to the
+  external MONA binary, which is its own non-trivial Windows install.
+- `flloat` - LTLf-native, pure Python, installs via plain `pip install
+  flloat` with no external binaries (verified: `pip install flloat`
+  succeeds cleanly on Windows, pulling in only pure-Python deps -
+  `pythomata`, `lark-parser`, `sympy`). It evaluates formula truth directly
+  over a finite trace (`formula.truth(trace, 0)`), which is exactly the
+  finite-horizon semantics this domain needs, without requiring full
+  automaton construction for the simple checking task at hand.
+
+`flloat` was adopted for both practical (cross-platform, zero external
+binaries) and methodological (finite-horizon domain fit) reasons. The
+safety-rule YAML (`config/safety_rules.yaml`) keeps standard LTL notation
+(`G`, `F`, `U`, `X`) since finite-trace and infinite-trace operators share
+syntax and differ only in semantics over finite vs. infinite traces - so the
+rule base reads the same way the proposal describes it, while `flloat`
+supplies LTLf semantics underneath.
+
+**Implementation note - atom name sanitization.** `flloat`'s grammar treats
+parentheses purely as grouping syntax, so the proposal's function-style atom
+names (e.g. `agent_at(child_room)`, `has_object(knife)`) are not valid
+`flloat` atom tokens as written - `agent_at(child_room)` parses as atom
+`agent_at` followed by an unexpected `(`. Rather than flattening the rule
+base's syntax (which would make `config/safety_rules.yaml` less readable and
+diverge further from the proposal's notation), `intent_filter/verifier/atoms.py`
+builds a fixed mapping from every grounded atom in the ontology (per room,
+object, and role) to a flat identifier (e.g. `agent_at__child_room`),
+applied consistently to both the formula string and the AP trace before
+parsing, and reversed when building human-readable violation explanations.
+This is transparent to rule authors and to the rest of the pipeline; only
+`intent_filter/verifier` needs to know about it.
 
 ## Metrics
 
@@ -97,10 +128,21 @@ added later to optionally import/map from them.
 
 ## Deviations from the original proposal
 
-None yet (Phase 1: environment/config scaffolding only). This section will
-be updated as implementation choices are made in later phases, so the
-methodology chapter of the final report can cite the actual system rather
-than only the proposal's design.
+- **LTL notation is implemented with LTLf (finite-trace) semantics**, not
+  infinite-trace LTL as the proposal's `G`/`F`/`U` notation might suggest at
+  face value. See "LTL vs. LTLf: formalism choice" above. The rule base's
+  written syntax is unchanged; only the underlying satisfaction semantics
+  (finite vs. infinite trace) differs, which is the methodologically
+  appropriate choice for finite robot command sequences.
+- **`spot` was not used** despite being the more commonly cited LTL tool in
+  the literature, because it has no PyPI distribution and is impractical to
+  install on the Windows development environment this project uses. This is
+  a tooling/environment constraint, not a methodological objection to `spot`
+  itself - see rationale above.
+
+Further deviations will be appended here as later phases are implemented, so
+the methodology chapter of the final report can cite the actual system
+rather than only the proposal's design.
 
 ## AI-assistance disclosure
 

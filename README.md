@@ -62,7 +62,7 @@ config/                  Ontology, safety rule base, and experiment config (YAML
 intent_filter/            Python package
   environment/             Ontology, symbolic state machine, safety rules, SimulatorBackend
   agents/                   Planner / Critic / NL->LTL Translator LLM wrappers (Phase 4)
-  verifier/                 Deterministic LTL/LTLf verification backend (Phase 2)
+  verifier/                 Deterministic LTLf verification backend (flloat)
   systems/                  The four pipeline configurations (Phase 5)
   decision.py               Decision layer + reprompting loop (Phase 5)
 data/                     Dataset schema, labeled instructions, generation scripts
@@ -89,9 +89,11 @@ copy .env.example .env        # then fill in ANTHROPIC_API_KEY (needed from Phas
 repeat count, and ablation flags; if absent, the loader falls back to
 `config/config.example.yaml`.
 
-No system-level dependencies are required for Phase 1-2. The LTL/LTLf
-library chosen in Phase 2 (see [docs/methodology.md](docs/methodology.md))
-will be added to `pyproject.toml` and documented here once finalized.
+No system-level dependencies are required. The LTL verifier uses `flloat`
+(pure-Python LTLf), installed automatically via `pip install -e ".[dev]"` -
+see [docs/methodology.md](docs/methodology.md#ltl-vs-ltlf-formalism-choice)
+for why `flloat` was chosen over `spot` (no PyPI distribution, weak native
+Windows support) and `ltlf2dfa` (depends on the external MONA binary).
 
 ## Usage
 
@@ -147,7 +149,9 @@ latency comparisons across systems.
 
 - [x] **Phase 1** - Repo scaffolding, config system, environment ontology +
       state machine + transition function, safety rule base, unit tests.
-- [ ] **Phase 2** - LTL/LTLf verifier integration.
+- [x] **Phase 2** - LTLf verifier integration (`flloat`); see
+      [docs/methodology.md](docs/methodology.md#ltl-vs-ltlf-formalism-choice)
+      for the formalism choice and atom-sanitization design note.
 - [ ] **Phase 3** - Dataset schema + seed dataset (60-80 examples).
 - [ ] **Phase 4** - Planner / Critic / Translator LLM-backed agents.
 - [ ] **Phase 5** - Four pipeline systems + decision layer + reprompting loop.
