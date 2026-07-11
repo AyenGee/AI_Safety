@@ -86,6 +86,10 @@ differently rather than duplicating logic.
 ## Status
 
 This diagram reflects the target design from the research proposal. As of
-Phase 1, only the shared environment (ontology, state machine, safety rule
-base) exists; `agents/`, `verifier/`, `systems/`, and `decision.py` are
-implemented in later phases (see README roadmap).
+Phase 4: the shared environment, the deterministic LTLf verifier, the seed
+dataset, and all three LLM-backed agents (Planner, Critic, NL->LTL
+Translator, `intent_filter/agents/`) exist and are verified both by mocked
+unit tests and end-to-end against the live Anthropic API. `systems/` and
+`decision.py` - composing these agents and the verifier into the four
+adjudication pipelines with the bounded reprompting loop - are implemented
+in Phase 5 (see README roadmap).

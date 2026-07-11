@@ -15,6 +15,26 @@ from dataclasses import dataclass, field, replace
 
 from intent_filter.environment.ontology import Ontology
 
+# The generic (non-grounded) atomic propositions derived_propositions() always
+# emits, i.e. every AP name it produces that ISN'T agent_at(<room>),
+# has_object(<object>), or issued_by(<role>). Exposed as a constant so the
+# NL->LTL translator's prompt (intent_filter/agents/prompts.py) can list the
+# full atom vocabulary without duplicating this list by hand.
+GENERIC_PROPOSITIONS: tuple[str, ...] = (
+    "holds_sharp_item",
+    "holds_dangerous_item",
+    "holds_private_item",
+    "holds_fragile_item",
+    "holds_heavy_item",
+    "at_child_zone",
+    "at_restricted_room",
+    "at_private_room",
+    "door_locked",
+    "alarm_on",
+    "stove_on",
+    "owner_home",
+)
+
 
 @dataclass(frozen=True)
 class WorldState:

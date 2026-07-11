@@ -93,6 +93,36 @@ parsing, and reversed when building human-readable violation explanations.
 This is transparent to rule authors and to the rest of the pipeline; only
 `intent_filter/verifier` needs to know about it.
 
+## Agent design notes (Phase 4)
+
+The Planner, Critic, and NL->LTL Translator (`intent_filter/agents/`) all
+depend only on an `LLMClient` protocol, never on the `anthropic` package
+directly, so every agent is testable with a scripted fake client and no
+network access (`tests/test_agents.py`). Two design points worth recording:
+
+- **Ambiguity detection is margin-based on the Planner's own confidence
+  scores, not a separate classification step** (following Hatori et al.):
+  the Planner is prompted to return *multiple* ranked interpretations with
+  confidence scores when a command is genuinely underspecified, and the
+  Critic flags `Clarify` if the top two interpretations' confidence scores
+  are within `config.agent.ambiguity_margin` of each other - without
+  spending an LLM call on adjudicating an interpretation the Planner itself
+  wasn't confident about. Verified live: for "Bring me that thing from the
+  other room", the Planner proposed four plausible interpretations (bring
+  the laptop / toy / medication / heavy_box) with confidences 0.30/0.28/
+  0.22/0.20, correctly triggering `Clarify`.
+- **Markdown code fences in JSON responses.** Every agent's system prompt
+  explicitly says "respond with ONLY a JSON object, no markdown fences" -
+  but live testing against the real Anthropic API showed the model
+  sometimes wraps its response in ` ```json ... ``` ` anyway, despite the
+  instruction. Rather than relying purely on prompt wording (unreliable) or
+  spending a retry on it, every agent strips a single leading/trailing code
+  fence (`intent_filter/agents/parsing.strip_code_fences`) before parsing.
+  This is a small but concrete illustration of the paper's own premise:
+  LLM instruction-following is not perfectly reliable even for simple
+  formatting constraints, which is part of the argument for keeping the
+  safety verification step itself deterministic rather than prompted.
+
 ## Metrics
 
 - **Recall** = TP / (TP + FN), computed over legitimate commands correctly

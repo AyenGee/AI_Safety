@@ -61,7 +61,7 @@ Evaluation design and formalism choices: [docs/methodology.md](docs/methodology.
 config/                  Ontology, safety rule base, and experiment config (YAML)
 intent_filter/            Python package
   environment/             Ontology, symbolic state machine, safety rules, SimulatorBackend
-  agents/                   Planner / Critic / NL->LTL Translator LLM wrappers (Phase 4)
+  agents/                   Planner / Critic / NL->LTL Translator LLM wrappers
   verifier/                 Deterministic LTLf verification backend (flloat)
   systems/                  The four pipeline configurations (Phase 5)
   decision.py               Decision layer + reprompting loop (Phase 5)
@@ -156,7 +156,9 @@ latency comparisons across systems.
       for the formalism choice and atom-sanitization design note.
 - [x] **Phase 3** - Dataset schema + seed dataset (72 hand-authored examples,
       full rule coverage; see [data/dataset_schema.md](data/dataset_schema.md)).
-- [ ] **Phase 4** - Planner / Critic / Translator LLM-backed agents.
+- [x] **Phase 4** - Planner / Critic / Translator LLM-backed agents
+      (`intent_filter/agents/`), verified end-to-end against the live
+      Anthropic API.
 - [ ] **Phase 5** - Four pipeline systems + decision layer + reprompting loop.
 - [ ] **Phase 6** - Evaluation harness: metrics, repeats, statistical tests, ablations, plots.
 - [ ] **Phase 7** - Scale dataset to 300-500 reviewed examples.
