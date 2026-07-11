@@ -1,0 +1,41 @@
+# Copy this file to config/config.yaml and adjust as needed.
+# config/config.yaml is gitignored - never commit API keys or local paths here.
+#
+# The Anthropic API key itself is NOT set here: it is read from the
+# ANTHROPIC_API_KEY environment variable (see .env.example / pydantic-settings
+# in intent_filter/config.py). Keeping secrets out of YAML avoids accidental
+# commits.
+
+environment:
+  ontology_path: config/environment_ontology.yaml
+  safety_rules_path: config/safety_rules.yaml
+
+dataset:
+  path: data/instructions.jsonl
+
+# Model used per agent role. Kept separate so cheaper/faster models can be
+# used for high-volume roles (e.g. Critic) and stronger models reserved for
+# roles where quality matters most (e.g. NL->LTL translation).
+models:
+  planner: claude-sonnet-5
+  critic: claude-haiku-4-5-20251001
+  translator: claude-sonnet-5
+  single_llm: claude-sonnet-5 # used by Baseline A / Single-LLM+LTL
+
+agent:
+  ambiguity_margin: 0.15 # Hatori et al.-style top-1 vs top-2 confidence margin
+  max_refinement_attempts: 2 # reprompting-loop bound on UNSAT (N)
+  translation_max_retries: 3
+
+evaluation:
+  repeats: 3
+  confidence_level: 0.95
+  ablations:
+    - remove_verifier
+    - remove_critic
+    - remove_clarification
+  results_dir: results
+
+logging:
+  level: INFO
+  format: json

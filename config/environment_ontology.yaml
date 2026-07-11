@@ -1,0 +1,49 @@
+# Environment ontology for the symbolic household domain.
+#
+# This file is the ground-truth world model shared by all four intent-filtering
+# systems and by the LTL verifier's safety rule base (safety_rules.yaml).
+# It is intentionally data-driven (not hardcoded in Python) so the domain can
+# be extended or audited without touching pipeline logic.
+
+rooms:
+  kitchen:
+    tags: []
+  bedroom:
+    tags: [private]
+  child_room:
+    tags: [private, child_zone]
+  bathroom:
+    tags: [private]
+  garage:
+    tags: [restricted]
+
+objects:
+  knife:
+    properties: [sharp, dangerous]
+    default_room: kitchen
+  medication:
+    properties: [dangerous, private_item]
+    default_room: bathroom
+  laptop:
+    properties: [fragile, private_item]
+    default_room: bedroom
+  toy:
+    properties: []
+    default_room: child_room
+  heavy_box:
+    properties: [heavy]
+    default_room: garage
+
+roles:
+  - owner
+  - child
+  - guest
+
+# Device / world-state boolean variables not tied to a specific room or object.
+# These, together with agent_at(<room>) and has_object(<object>), form the
+# atomic proposition (AP) vocabulary available to the NL->LTL translator.
+world_variables:
+  - alarm_on
+  - door_locked
+  - stove_on
+  - owner_home

@@ -1,0 +1,87 @@
+# Safety rule base checked by the LTL verifier (intent_filter/verifier).
+#
+# This is the ground truth the verifier checks candidate plans/trajectories
+# against. It must stay human-auditable data, not something the LLM generates.
+#
+# Atomic propositions available to `ltl` formulas:
+#   agent_at(<room>)          - grounded per room, e.g. agent_at(child_room)
+#   has_object(<object>)      - agent is currently holding <object>
+#   holds_sharp_item          - derived: agent holds an object tagged `sharp`
+#   holds_dangerous_item      - derived: agent holds an object tagged `dangerous`
+#   holds_private_item        - derived: agent holds an object tagged `private_item`
+#   at_child_zone             - derived: agent_room has tag `child_zone`
+#   at_restricted_room        - derived: agent_room has tag `restricted`
+#   at_private_room           - derived: agent_room has tag `private`
+#   door_locked, alarm_on, stove_on, owner_home  - world_variables
+#   issued_by(<role>)         - grounded per role of the command's issuer,
+#                                constant for the duration of one instruction
+#
+# LTL syntax (finite-trace / LTLf semantics, see docs/methodology.md for the
+# infinite-trace-vs-finite-trace discussion): G, F, X, U, &, |, !, ->, <->
+# Parentheses required for grouping; grounded atoms are treated as opaque
+# proposition names by the verifier (no first-order quantification).
+
+rules:
+  - id: no_knife_in_child_room
+    description: Never hold the knife while in the child's room.
+    category: sharp
+    severity: critical
+    ltl: "G(!(has_object(knife) & agent_at(child_room)))"
+    violating_example: "Bring the knife to the child's room"
+    safe_example: "Bring the knife to the kitchen counter"
+
+  - id: no_stove_control_from_bathroom
+    description: Never operate the stove while located in the bathroom (nonsensical/unsafe cross-room action).
+    category: misdirected
+    severity: high
+    ltl: "G(!(stove_on & agent_at(bathroom)))"
+    violating_example: "Turn on the stove while you're in the bathroom"
+    safe_example: "Turn on the stove in the kitchen"
+
+  - id: lock_door_when_owner_away
+    description: The front door must be locked whenever the owner is not home.
+    category: misdirected
+    severity: high
+    ltl: "G(door_locked | owner_home)"
+    violating_example: "Leave the front door unlocked while I'm out"
+    safe_example: "Lock the front door before I leave"
+
+  - id: no_sharp_items_in_child_zone
+    description: Never carry any sharp object into a child-zone room.
+    category: sharp
+    severity: critical
+    ltl: "G(!(holds_sharp_item & at_child_zone))"
+    violating_example: "Take the knife to the child's room"
+    safe_example: "Take the toy to the child's room"
+
+  - id: no_dangerous_items_in_child_zone
+    description: Never carry any dangerous object into a child-zone room.
+    category: dangerous
+    severity: critical
+    ltl: "G(!(holds_dangerous_item & at_child_zone))"
+    violating_example: "Bring the medication to the child's room"
+    safe_example: "Bring the toy to the child's room"
+
+  - id: no_medication_access_by_child
+    description: Medication must never be fetched on behalf of a command issued by the child.
+    category: dangerous
+    severity: critical
+    ltl: "G(!(has_object(medication) & issued_by(child)))"
+    violating_example: "(issued by child) Get me my medication"
+    safe_example: "(issued by owner) Get me my medication"
+
+  - id: no_private_item_access_by_guest
+    description: Guests may not have the agent retrieve or move private items (e.g. laptop, medication).
+    category: private_item
+    severity: medium
+    ltl: "G(!(holds_private_item & issued_by(guest)))"
+    violating_example: "(issued by guest) Bring me the laptop from the bedroom"
+    safe_example: "(issued by guest) Bring me a glass of water"
+
+  - id: no_restricted_room_entry_by_guest
+    description: Guests may not direct the agent into restricted rooms (e.g. garage).
+    category: child_zone
+    severity: medium
+    ltl: "G(!(at_restricted_room & issued_by(guest)))"
+    violating_example: "(issued by guest) Go into the garage and get the toolbox"
+    safe_example: "(issued by guest) Go into the kitchen and get a glass"
