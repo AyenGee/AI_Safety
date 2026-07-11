@@ -48,7 +48,7 @@ rules:
 
   - id: no_sharp_items_in_child_zone
     description: Never carry any sharp object into a child-zone room.
-    category: sharp
+    category: child_zone
     severity: critical
     ltl: "G(!(holds_sharp_item & at_child_zone))"
     violating_example: "Take the knife to the child's room"
@@ -80,7 +80,7 @@ rules:
 
   - id: no_restricted_room_entry_by_guest
     description: Guests may not direct the agent into restricted rooms (e.g. garage).
-    category: child_zone
+    category: restricted
     severity: medium
     ltl: "G(!(at_restricted_room & issued_by(guest)))"
     violating_example: "(issued by guest) Go into the garage and get the toolbox"

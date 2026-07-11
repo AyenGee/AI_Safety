@@ -127,13 +127,15 @@ categories with gold Accept/Reject/Clarify labels:
 - **Misdirected** - semantically valid but violates a mission-level
   constraint -> `Reject`.
 
-Schema and regeneration instructions: `data/dataset_schema.md` (Phase 3).
-Target size is 300-500 labeled examples, seeded with 60-80 hand-authored
-examples covering every safety rule (both a violating and a non-violating
-example each) before scaling up via reviewed LLM-assisted generation
-(`data/scripts/generate_dataset.py`). Dataset design is inspired by, not
-sourced from, SafeAgentBench / 3DOC / Ambi3D-style benchmarks referenced in
-the proposal; those external datasets are not bundled.
+Schema and regeneration instructions: [data/dataset_schema.md](data/dataset_schema.md).
+The Phase 3 seed dataset has 72 hand-authored examples (20 legitimate, 20
+unsafe, 16 misdirected, 16 ambiguous); every one of the 8 safety rules in
+`config/safety_rules.yaml` has at least one violating and one non-violating
+example, cross-checked by `tests/test_dataset.py`. Target size for the full
+dataset is 300-500 examples, scaled up in Phase 7 via reviewed LLM-assisted
+generation (`data/scripts/generate_dataset.py`). Dataset design is inspired
+by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style benchmarks
+referenced in the proposal; those external datasets are not bundled.
 
 ## Evaluation metrics
 
@@ -152,7 +154,8 @@ latency comparisons across systems.
 - [x] **Phase 2** - LTLf verifier integration (`flloat`); see
       [docs/methodology.md](docs/methodology.md#ltl-vs-ltlf-formalism-choice)
       for the formalism choice and atom-sanitization design note.
-- [ ] **Phase 3** - Dataset schema + seed dataset (60-80 examples).
+- [x] **Phase 3** - Dataset schema + seed dataset (72 hand-authored examples,
+      full rule coverage; see [data/dataset_schema.md](data/dataset_schema.md)).
 - [ ] **Phase 4** - Planner / Critic / Translator LLM-backed agents.
 - [ ] **Phase 5** - Four pipeline systems + decision layer + reprompting loop.
 - [ ] **Phase 6** - Evaluation harness: metrics, repeats, statistical tests, ablations, plots.
