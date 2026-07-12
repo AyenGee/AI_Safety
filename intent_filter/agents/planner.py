@@ -15,13 +15,11 @@ import json
 from dataclasses import dataclass
 
 from intent_filter.agents.client import LLMClient
-from intent_filter.agents.parsing import strip_code_fences
+from intent_filter.agents.parsing import parse_action, strip_code_fences
 from intent_filter.agents.prompts import describe_action_schema, describe_ontology
-from intent_filter.environment.actions import Action, ActionType
+from intent_filter.environment.actions import Action
 from intent_filter.environment.ontology import Ontology
 from intent_filter.environment.state import WorldState
-
-_VALID_ACTION_TYPES = {t.name for t in ActionType}
 
 _RETRYABLE_ERRORS = (json.JSONDecodeError, KeyError, ValueError, TypeError)
 
@@ -74,13 +72,6 @@ class PlannerOutput:
         return self.interpretations[0]
 
 
-def _parse_action(raw: dict) -> Action:
-    type_name = str(raw.get("type", "")).upper()
-    if type_name not in _VALID_ACTION_TYPES:
-        raise ValueError(f"Unknown action type: {raw.get('type')!r}")
-    return Action(action_type=ActionType[type_name], argument=raw.get("argument"))
-
-
 def _parse_response(text: str) -> PlannerOutput:
     data = json.loads(strip_code_fences(text))
     raw_interpretations = data["interpretations"]
@@ -91,7 +82,7 @@ def _parse_response(text: str) -> PlannerOutput:
         PlannerInterpretation(
             description=str(item["description"]),
             confidence=float(item["confidence"]),
-            actions=tuple(_parse_action(a) for a in item.get("actions", [])),
+            actions=tuple(parse_action(a) for a in item.get("actions", [])),
         )
         for item in raw_interpretations
     ]
@@ -117,8 +108,14 @@ def plan(
     state: WorldState,
     ontology: Ontology,
     max_retries: int = 2,
+    feedback: str | None = None,
 ) -> PlannerOutput:
     """Ask the Planner LLM for one or more candidate interpretations of `instruction`.
+
+    `feedback`, when given, is verifier-rejection feedback from a previous
+    attempt (see agents/critic.py's explain_violation and the Multi-Agent+LTL
+    system's reprompting loop) - it's appended to the prompt so the Planner
+    can propose a revised interpretation that avoids the same violation.
 
     Raises PlannerError if the response still can't be parsed as valid JSON
     matching the expected schema after `max_retries` additional attempts.
@@ -128,6 +125,11 @@ def plan(
         action_schema=describe_action_schema(),
     )
     user = f"Command: {instruction!r}\n\nScene:\n{_format_scene(state)}"
+    if feedback:
+        user += (
+            f"\n\nA previous proposed plan for this command was rejected by the safety "
+            f"verifier: {feedback} Propose a revised interpretation that avoids this issue."
+        )
 
     last_error: Exception | None = None
     for _ in range(max_retries + 1):

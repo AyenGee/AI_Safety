@@ -123,6 +123,68 @@ network access (`tests/test_agents.py`). Two design points worth recording:
   formatting constraints, which is part of the argument for keeping the
   safety verification step itself deterministic rather than prompted.
 
+## Decision layer and system wiring (Phase 5)
+
+`intent_filter/decision.py` defines the shared `PipelineResult`/`StageLog`/
+`SystemContext` types every one of the four systems (`intent_filter/systems/`)
+returns, so results are directly comparable in the Phase 6 evaluation harness.
+
+**Verifier gating design decision (confirmed with the researcher before
+implementation, not assumed).** For the two LTL-augmented systems, the
+verifier's decision-relevant check is the candidate action trajectory
+against the *fixed* safety rule base (`check_rule_base`, Phase 2) only - not
+the NL->LTL Translator's per-instruction formula. The Translator still runs
+on every LTL-augmented pipeline call regardless of the LLM/Critic's own
+decision, and its formula is logged in the stage trace; its accuracy is a
+separate Phase 6 ablation metric (comparing the translated formula against
+the rule(s) a dataset example was designed to exercise), rather than
+something that gates Accept/Reject. Two reasons: (1) it cleanly isolates
+"does formal verification help" from "is the translator any good" as
+independent questions, and (2) the dataset's own gold labels for
+unsafe/misdirected rows are themselves defined in terms of the fixed rule
+base (`related_rule_ids`, Phase 3), so grounding the decision in that same
+rule base keeps the evaluation internally consistent. The alternative
+(requiring both the rule base *and* the translated formula to be SAT) was
+considered and rejected as adding decision-flow complexity for a formula
+that, in live testing, was usually logically equivalent to one of the 8
+existing rules anyway.
+
+A second, related rule: **the verifier can only make a decision stricter
+than the upstream LLM's own judgement, never more lenient.** If the
+Planner/Critic (or the single LLM) already decided Reject or Clarify, the
+verifier is not consulted to potentially flip that back to Accept - a
+Reject from the LLM's own judgement may reflect an issue outside the fixed
+rule base's coverage, and there is no principled basis for the deterministic
+check to override a stated safety concern.
+
+**Two behaviors surfaced by live testing (not visible in mocked unit tests):**
+
+- **The Planner sometimes hedges on unsafe commands.** For "Bring the knife
+  to the child's room", the Planner (which is not shown the safety rule
+  descriptions - only the Critic and single-LLM agent are, matching the
+  proposal's division of labor) occasionally returned two interpretations:
+  one executing the command, one describing it as unsafe and refusing,
+  with confidences close enough (0.55 vs. 0.45) to trigger the ambiguity
+  margin and produce `Clarify` instead of `Reject` for Baseline B. This is
+  emergent behavior from the base model's own alignment training
+  interacting with the margin-based ambiguity mechanism, not a bug in the
+  pipeline - and it is itself a relevant data point for the evaluation
+  (Baseline B's recall/safety numbers will reflect real run-to-run
+  variance from this, which is exactly why Phase 6 runs every system
+  multiple times and reports confidence intervals rather than one run).
+- **The reprompting loop was not organically triggered in live spot-testing.**
+  With the rule descriptions available to it, the Critic caught every
+  unsafe/misdirected instruction tried live (including the less obviously
+  "dangerous" guest/restricted-room case), so the Planner->Critic->Verifier
+  path never actually reached a Critic-accept-but-verifier-UNSAT state in
+  manual testing - a reasonably good sign for Baseline B's own safety
+  judgement. The reprompting loop's mechanics (bounded retries, feedback
+  construction, eventual default-Reject) are nonetheless directly verified
+  by `tests/test_systems.py` using a scripted Critic response that accepts
+  an unsafe plan, forcing the UNSAT path deterministically. Full-dataset
+  evaluation in Phase 6, across repeats, is expected to surface real
+  reprompting-loop activations that ad hoc manual testing didn't.
+
 ## Metrics
 
 - **Recall** = TP / (TP + FN), computed over legitimate commands correctly
@@ -169,6 +231,12 @@ added later to optionally import/map from them.
   install on the Windows development environment this project uses. This is
   a tooling/environment constraint, not a methodological objection to `spot`
   itself - see rationale above.
+- **The LTL verifier's decision-relevant check is the fixed safety rule base
+  only, not the NL->LTL Translator's per-instruction formula** - see
+  "Decision layer and system wiring (Phase 5)" above for the full rationale.
+  This was a genuine ambiguity in the original architecture description
+  (which could be read either way) and was resolved by confirming the
+  design with the researcher before implementation, rather than assumed.
 
 Further deviations will be appended here as later phases are implemented, so
 the methodology chapter of the final report can cite the actual system

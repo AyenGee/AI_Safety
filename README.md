@@ -63,8 +63,8 @@ intent_filter/            Python package
   environment/             Ontology, symbolic state machine, safety rules, SimulatorBackend
   agents/                   Planner / Critic / NL->LTL Translator LLM wrappers
   verifier/                 Deterministic LTLf verification backend (flloat)
-  systems/                  The four pipeline configurations (Phase 5)
-  decision.py               Decision layer + reprompting loop (Phase 5)
+  systems/                  The four pipeline configurations
+  decision.py               Shared decision-layer types + reprompting loop helpers
 data/                     Dataset schema, labeled instructions, generation scripts
 scripts/                  Evaluation harness + manual debug CLI
 tests/                    pytest unit + smoke tests (mocked LLMs, no network calls)
@@ -97,12 +97,19 @@ Windows support) and `ltlf2dfa` (depends on the external MONA binary).
 
 ## Usage
 
-Run a single instruction through any of the four systems (manual/debug CLI,
-implemented in Phase 5):
+Run a single instruction through any of the four systems, printing the
+decision and the full stage trace (agent outputs, verifier outcomes,
+per-stage latency):
 
 ```bash
 python scripts/run_single_instruction.py --system multi_agent_ltl --text "Bring the knife to the child's room"
+python scripts/run_single_instruction.py --system single_llm --text "Get me my medication" --role child
 ```
+
+`--system` is one of `single_llm` (Baseline A), `multi_agent` (Baseline B),
+`single_llm_ltl`, or `multi_agent_ltl`. `--role` (owner/child/guest) and
+`--room` override the starting scene; both default to the environment's
+standard initial state.
 
 Run the full evaluation across all systems and the dataset (Phase 6):
 
@@ -159,7 +166,10 @@ latency comparisons across systems.
 - [x] **Phase 4** - Planner / Critic / Translator LLM-backed agents
       (`intent_filter/agents/`), verified end-to-end against the live
       Anthropic API.
-- [ ] **Phase 5** - Four pipeline systems + decision layer + reprompting loop.
+- [x] **Phase 5** - Four pipeline systems (`intent_filter/systems/`) +
+      shared decision layer (`intent_filter/decision.py`) + bounded
+      reprompting loop, verified end-to-end against the live API and by
+      `tests/test_systems.py`.
 - [ ] **Phase 6** - Evaluation harness: metrics, repeats, statistical tests, ablations, plots.
 - [ ] **Phase 7** - Scale dataset to 300-500 reviewed examples.
 - [ ] **Phase 8** - Full evaluation run + methodology write-up sync.

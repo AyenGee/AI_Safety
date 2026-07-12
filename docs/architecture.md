@@ -85,11 +85,11 @@ differently rather than duplicating logic.
 
 ## Status
 
-This diagram reflects the target design from the research proposal. As of
-Phase 4: the shared environment, the deterministic LTLf verifier, the seed
-dataset, and all three LLM-backed agents (Planner, Critic, NL->LTL
-Translator, `intent_filter/agents/`) exist and are verified both by mocked
-unit tests and end-to-end against the live Anthropic API. `systems/` and
-`decision.py` - composing these agents and the verifier into the four
-adjudication pipelines with the bounded reprompting loop - are implemented
-in Phase 5 (see README roadmap).
+All four systems in this diagram are implemented (`intent_filter/systems/`)
+and composed via the shared decision layer (`intent_filter/decision.py`),
+verified both by mocked unit tests (`tests/test_systems.py`, including the
+reprompting loop's success and exhaustion paths) and end-to-end against the
+live Anthropic API for every system. `scripts/run_single_instruction.py`
+runs any instruction through any system and prints the full stage trace.
+Remaining work is the Phase 6 evaluation harness (batch runs across the
+dataset, metrics, statistical tests, ablations, plots) - see README roadmap.
