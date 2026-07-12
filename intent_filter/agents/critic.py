@@ -120,14 +120,20 @@ def review(
     rule_base: SafetyRuleBase,
     ambiguity_margin: float,
     max_retries: int = 2,
+    skip_ambiguity_check: bool = False,
 ) -> CriticOutput:
     """Review the Planner's top interpretation, checking ambiguity first.
+
+    `skip_ambiguity_check`, when True, still computes the margin (so it's
+    available for logging) but never short-circuits to "clarify" - used by
+    the "remove_clarification" ablation (Phase 6) to measure the value of
+    the clarification mechanism itself, with everything else unchanged.
 
     Raises CriticError if the LLM's accept/reject response still can't be
     parsed after `max_retries` additional attempts.
     """
     is_ambiguous, margin = check_ambiguity(planner_output, ambiguity_margin)
-    if is_ambiguous:
+    if is_ambiguous and not skip_ambiguity_check:
         return CriticOutput(
             decision="clarify",
             rationale=(

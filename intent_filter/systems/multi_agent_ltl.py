@@ -11,6 +11,18 @@ Simplification: when multiple rules are violated at once, the reprompting
 loop's feedback is built from the first violated rule found (rule-base
 order), not necessarily the most severe - noted here rather than silently
 assumed, since it's a defensible but real simplification.
+
+The three `use_*` keyword arguments implement the Phase 6 ablation studies
+(Multi-Agent+LTL with the verifier / Critic / clarification mechanism
+removed) as flags on this same function rather than three separate
+duplicated implementations, so an ablation run is guaranteed to share every
+line of logic with the full system except the part being ablated. All
+default to True (the full system) - existing callers are unaffected.
+Removing the Critic (`use_critic=False`) also removes clarification,
+because ambiguity detection is structurally part of the Critic's job in
+this architecture (`check_ambiguity` is only ever invoked from within
+`critic.review`); this coupling is intentional and documented in
+docs/methodology.md rather than worked around.
 """
 
 from __future__ import annotations
@@ -34,7 +46,15 @@ from intent_filter.verifier import VerificationResult, check_rule_base, overall_
 _DECISION_MAP: dict[str, Decision] = {"accept": "Accept", "reject": "Reject", "clarify": "Clarify"}
 
 
-def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResult:
+def run(
+    instruction: str,
+    state: WorldState,
+    ctx: SystemContext,
+    *,
+    use_verifier: bool = True,
+    use_critic: bool = True,
+    use_clarification: bool = True,
+) -> PipelineResult:
     stages: list[StageLog] = []
     total_latency = 0.0
 
@@ -56,34 +76,55 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
         )
     )
 
-    critic_start = time.perf_counter()
-    critic_output = review(
-        ctx.client,
-        ctx.models.critic,
-        instruction,
-        planner_output,
-        state,
-        ctx.ontology,
-        ctx.rule_base,
-        ctx.ambiguity_margin,
-    )
-    critic_latency = time.perf_counter() - critic_start
-    total_latency += critic_latency
-    stages.append(
-        StageLog(
-            stage="critic",
-            detail={
-                "decision": critic_output.decision,
-                "rationale": critic_output.rationale,
-                "ambiguity_detected": critic_output.ambiguity_detected,
-                "margin": critic_output.margin,
-            },
-            latency_seconds=critic_latency,
+    if use_critic:
+        critic_start = time.perf_counter()
+        critic_output = review(
+            ctx.client,
+            ctx.models.critic,
+            instruction,
+            planner_output,
+            state,
+            ctx.ontology,
+            ctx.rule_base,
+            ctx.ambiguity_margin,
+            skip_ambiguity_check=not use_clarification,
         )
-    )
+        critic_latency = time.perf_counter() - critic_start
+        total_latency += critic_latency
+        stages.append(
+            StageLog(
+                stage="critic",
+                detail={
+                    "decision": critic_output.decision,
+                    "rationale": critic_output.rationale,
+                    "ambiguity_detected": critic_output.ambiguity_detected,
+                    "margin": critic_output.margin,
+                },
+                latency_seconds=critic_latency,
+            )
+        )
+        current_actions = (
+            critic_output.chosen_interpretation.actions
+            if critic_output.chosen_interpretation is not None
+            else ()
+        )
+        decision_so_far = critic_output.decision
+        rationale_so_far = critic_output.rationale
+    else:
+        current_actions = planner_output.top.actions
+        decision_so_far = "accept"
+        rationale_so_far = "Critic ablated: proceeding directly to formal verification with no semantic review."
 
-    # Always translate once for logging/accuracy tracking, regardless of the
-    # Critic's decision (see decision.py's module docstring).
+    if not use_verifier:
+        return PipelineResult(
+            decision=_DECISION_MAP.get(decision_so_far, "Reject"),
+            rationale=rationale_so_far,
+            stages=tuple(stages),
+            total_latency_seconds=total_latency,
+        )
+
+    # Always translate once verification is in play, for logging/accuracy
+    # tracking, regardless of the Critic's decision (see decision.py).
     translate_start = time.perf_counter()
     translation = translate(
         ctx.client,
@@ -107,17 +148,15 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
         )
     )
 
-    if critic_output.decision in ("reject", "clarify"):
+    if use_critic and decision_so_far in ("reject", "clarify"):
         return PipelineResult(
-            decision=_DECISION_MAP[critic_output.decision],
-            rationale=critic_output.rationale,
+            decision=_DECISION_MAP[decision_so_far],
+            rationale=rationale_so_far,
             stages=tuple(stages),
             total_latency_seconds=total_latency,
         )
 
-    # Critic accepted -> verify its chosen interpretation, with a bounded
-    # reprompting loop on UNSAT.
-    current_actions = critic_output.chosen_interpretation.actions
+    # Verify the chosen action sequence, with a bounded reprompting loop on UNSAT.
     refinement_attempts = 0
 
     while True:
@@ -166,7 +205,7 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
         if result is VerificationResult.SAT:
             return PipelineResult(
                 decision="Accept",
-                rationale=critic_output.rationale,
+                rationale=rationale_so_far,
                 stages=tuple(stages),
                 total_latency_seconds=total_latency,
                 refinement_attempts=refinement_attempts,
@@ -181,24 +220,28 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
                 refinement_attempts=refinement_attempts,
             )
 
-        # Reprompting loop: Critic explains the (first) violation, Planner
-        # gets one more attempt.
+        # Reprompting loop: explain the (first) violation, Planner gets one
+        # more attempt. With the Critic ablated, there's no LLM available to
+        # narrate the violation, so the deterministic verifier's own summary
+        # is used as feedback instead - still exercises the reprompting
+        # mechanism itself, just without the Critic's natural-language framing.
         first_violation = next(
             o for o in outcomes.values() if o.result is VerificationResult.UNSAT
         )
-        explain_start = time.perf_counter()
-        feedback = explain_violation(
-            ctx.client, ctx.models.critic, instruction, first_violation
-        )
-        explain_latency = time.perf_counter() - explain_start
-        total_latency += explain_latency
-        stages.append(
-            StageLog(
-                stage="critic_explain",
-                detail={"attempt": refinement_attempts, "feedback": feedback},
-                latency_seconds=explain_latency,
+        if use_critic:
+            explain_start = time.perf_counter()
+            feedback = explain_violation(ctx.client, ctx.models.critic, instruction, first_violation)
+            explain_latency = time.perf_counter() - explain_start
+            total_latency += explain_latency
+            stages.append(
+                StageLog(
+                    stage="critic_explain",
+                    detail={"attempt": refinement_attempts, "feedback": feedback},
+                    latency_seconds=explain_latency,
+                )
             )
-        )
+        else:
+            feedback = summarize_violations(outcomes)
 
         refinement_attempts += 1
 

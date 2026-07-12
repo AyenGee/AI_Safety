@@ -91,5 +91,12 @@ verified both by mocked unit tests (`tests/test_systems.py`, including the
 reprompting loop's success and exhaustion paths) and end-to-end against the
 live Anthropic API for every system. `scripts/run_single_instruction.py`
 runs any instruction through any system and prints the full stage trace.
-Remaining work is the Phase 6 evaluation harness (batch runs across the
-dataset, metrics, statistical tests, ablations, plots) - see README roadmap.
+
+The evaluation harness (`intent_filter/evaluation/`, `scripts/run_evaluation.py`)
+is also implemented: metrics with confidence intervals across repeats,
+McNemar/ANOVA-or-Kruskal-Wallis statistical tests, the three Multi-Agent+LTL
+ablations (`ABLATIONS` in `intent_filter/systems/__init__.py`), and plots,
+verified by unit tests and against the live API on small curated subsets.
+Remaining work is running the full 72-example (scaling to 300-500 in
+Phase 7) x repeats x (4 systems + 3 ablations) evaluation, deferred to
+Phase 8 for cost/time reasons - see README roadmap.

@@ -63,10 +63,11 @@ intent_filter/            Python package
   environment/             Ontology, symbolic state machine, safety rules, SimulatorBackend
   agents/                   Planner / Critic / NL->LTL Translator LLM wrappers
   verifier/                 Deterministic LTLf verification backend (flloat)
-  systems/                  The four pipeline configurations
+  systems/                  The four pipeline configurations + ablations registry
+  evaluation/                Metrics, statistical tests, run orchestration, plots
   decision.py               Shared decision-layer types + reprompting loop helpers
 data/                     Dataset schema, labeled instructions, generation scripts
-scripts/                  Evaluation harness + manual debug CLI
+scripts/                  run_evaluation.py (harness CLI) + run_single_instruction.py (debug CLI)
 tests/                    pytest unit + smoke tests (mocked LLMs, no network calls)
 results/                  Gitignored evaluation run outputs (timestamped per run)
 docs/                     Architecture and methodology docs
@@ -111,11 +112,29 @@ python scripts/run_single_instruction.py --system single_llm --text "Get me my m
 `--room` override the starting scene; both default to the environment's
 standard initial state.
 
-Run the full evaluation across all systems and the dataset (Phase 6):
+Run the evaluation harness across systems and the dataset:
 
 ```bash
-python scripts/run_evaluation.py --config config/config.yaml
+# Smoke test: a handful of instructions, 1 repeat, all 4 systems
+python scripts/run_evaluation.py --limit 8 --repeats 1
+
+# Full evaluation: all 4 systems + the 3 Multi-Agent+LTL ablations,
+# config-driven repeat count (Phase 8)
+python scripts/run_evaluation.py
+
+# Only specific systems, skip ablations
+python scripts/run_evaluation.py --systems single_llm,multi_agent --no-ablations
 ```
+
+Each run writes `results/<timestamp>/`: `raw_results.jsonl` (every
+system/example/repeat outcome with full stage traces), `metrics_summary.csv`/
+`.json` (Recall/Precision/Specificity/F1/FRR/Clarification-Accuracy with
+confidence intervals across repeats, plus latency mean/p50/p95),
+`statistical_tests.json` (pairwise McNemar's tests, ANOVA-or-Kruskal-Wallis
+latency comparison), `plots/` (recall-vs-FRR tradeoff, latency breakdown,
+per-system confusion matrices), and `config_used.json` for reproducibility.
+See [docs/methodology.md](docs/methodology.md#metrics-phase-6) for how the
+metrics are defined and the ablations' exact semantics.
 
 Run tests (no live LLM calls; agents are mocked):
 
@@ -146,13 +165,22 @@ referenced in the proposal; those external datasets are not bundled.
 
 ## Evaluation metrics
 
-Recall, Precision, Specificity, F1, False Rejection Rate (FRR), and latency
-(mean/p50/p95, broken down by LLM inference / NL->LTL translation /
-verification stage). Full definitions: [docs/methodology.md](docs/methodology.md#metrics).
-Each configuration is run multiple times (default 3-5) to account for LLM
-stochasticity; results report mean ± confidence interval, with McNemar's
-test for paired classification comparisons and ANOVA/Kruskal-Wallis for
-latency comparisons across systems.
+Recall, Precision, Specificity, F1, and False Rejection Rate (FRR) are
+computed from a single consistent confusion matrix (positive class =
+legitimate/should-Accept); `ambiguous`-category examples are scored
+separately by Clarification Accuracy. Latency is reported as mean/p50/p95,
+both end-to-end and broken down by stage (Planner / Critic / NL->LTL
+Translator / Verifier). Full definitions and the reasoning behind the
+metric framing: [docs/methodology.md](docs/methodology.md#metrics-phase-6).
+
+Each system is run `config.evaluation.repeats` times (default 3) to account
+for LLM stochasticity; results report mean ± confidence interval per metric
+across repeats. McNemar's test compares every pair of systems on paired
+predictions; latency is compared across systems via ANOVA or Kruskal-Wallis,
+chosen by a per-system Shapiro-Wilk normality check. The three Multi-Agent+LTL
+ablations (verifier / Critic / clarification removed one at a time) are run
+alongside the four systems by default - see
+[docs/methodology.md](docs/methodology.md#ablation-studies-phase-6).
 
 ## Current status / roadmap
 
@@ -170,7 +198,11 @@ latency comparisons across systems.
       shared decision layer (`intent_filter/decision.py`) + bounded
       reprompting loop, verified end-to-end against the live API and by
       `tests/test_systems.py`.
-- [ ] **Phase 6** - Evaluation harness: metrics, repeats, statistical tests, ablations, plots.
+- [x] **Phase 6** - Evaluation harness (`intent_filter/evaluation/`,
+      `scripts/run_evaluation.py`): metrics with confidence intervals,
+      McNemar/ANOVA-or-Kruskal-Wallis statistical tests, the three
+      Multi-Agent+LTL ablations, and plots - verified by unit tests and
+      against the live API on small curated subsets.
 - [ ] **Phase 7** - Scale dataset to 300-500 reviewed examples.
 - [ ] **Phase 8** - Full evaluation run + methodology write-up sync.
 

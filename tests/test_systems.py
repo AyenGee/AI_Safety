@@ -359,3 +359,127 @@ def test_multi_agent_ltl_invalid_action_sequence_rejected(ontology, ctx_factory)
 
     assert result.decision == "Reject"
     assert result.stages[-1].detail["result"] == "UNKNOWN"
+
+
+# --- Multi-Agent+LTL ablations (Phase 6) -------------------------------------------------
+
+
+def test_ablation_remove_verifier_matches_baseline_b_shape(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "safe plan", "confidence": 0.95, "actions": SAFE_ACTIONS}]),
+            _critic_json("accept"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run(
+        "Bring the toy to the child's room", state, ctx, use_verifier=False
+    )
+
+    assert result.decision == "Accept"
+    # No translator, no verifier call - only the two LLM calls Baseline B would make.
+    assert [s.stage for s in result.stages] == ["planner", "critic"]
+    assert len(client.calls) == 2
+
+
+def test_ablation_remove_verifier_unsafe_plan_still_accepted(ontology, ctx_factory):
+    """With the verifier ablated, an unsafe plan the Critic mistakenly accepts
+    is accepted outright - this is the point of the ablation: showing what
+    the formal verifier's presence actually buys over Baseline B."""
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "unsafe plan", "confidence": 0.95, "actions": UNSAFE_ACTIONS}]),
+            _critic_json("accept"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run(
+        "Bring the knife to the child's room", state, ctx, use_verifier=False
+    )
+
+    assert result.decision == "Accept"
+
+
+def test_ablation_remove_critic_skips_critic_call_and_verifies_top_interpretation(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "safe plan", "confidence": 0.95, "actions": SAFE_ACTIONS}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run(
+        "Bring the toy to the child's room", state, ctx, use_critic=False
+    )
+
+    assert result.decision == "Accept"
+    assert [s.stage for s in result.stages] == ["planner", "translator", "verifier"]
+    assert "critic" not in [s.stage for s in result.stages]
+
+
+def test_ablation_remove_critic_verifier_still_catches_unsafe_plan(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "unsafe plan", "confidence": 0.95, "actions": UNSAFE_ACTIONS}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client, max_refinement_attempts=0)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run(
+        "Bring the knife to the child's room", state, ctx, use_critic=False
+    )
+
+    assert result.decision == "Reject"
+    assert "no_knife_in_child_room" in result.rationale
+
+
+def test_ablation_remove_critic_reprompt_uses_verifier_summary_not_llm_explanation(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "unsafe plan", "confidence": 0.95, "actions": UNSAFE_ACTIONS}]),
+            _translator_json("G(true)"),
+            # No explain_violation call expected - straight to the replan.
+            _planner_json([{"description": "revised safe plan", "confidence": 0.95, "actions": SAFE_ACTIONS}]),
+        ]
+    )
+    ctx = ctx_factory(client, max_refinement_attempts=1)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run(
+        "Bring the knife to the child's room", state, ctx, use_critic=False
+    )
+
+    assert result.decision == "Accept"
+    assert result.refinement_attempts == 1
+    assert "critic_explain" not in [s.stage for s in result.stages]
+    assert len(client.calls) == 3  # planner, translator, replan - no explanation call
+
+
+def test_ablation_remove_clarification_forces_critic_call_despite_ambiguity(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json(
+                [
+                    {"description": "interp A", "confidence": 0.55, "actions": SAFE_ACTIONS},
+                    {"description": "interp B", "confidence": 0.52, "actions": []},
+                ]
+            ),
+            _critic_json("accept"),  # Critic is consulted despite the close margin
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run("Go get it", state, ctx, use_clarification=False)
+
+    assert result.decision == "Accept"
+    assert len(client.calls) == 3  # planner, critic (not short-circuited), translator
