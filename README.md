@@ -66,7 +66,7 @@ intent_filter/            Python package
   systems/                  The four pipeline configurations + ablations registry
   evaluation/                Metrics, statistical tests, run orchestration, plots
   decision.py               Shared decision-layer types + reprompting loop helpers
-data/                     Dataset schema, labeled instructions, generation scripts
+data/                     Dataset schema and the 300-example labeled instruction set
 scripts/                  run_evaluation.py (harness CLI) + run_single_instruction.py (debug CLI)
 tests/                    pytest unit + smoke tests (mocked LLMs, no network calls)
 results/                  Gitignored evaluation run outputs (timestamped per run)
@@ -154,14 +154,16 @@ categories with gold Accept/Reject/Clarify labels:
   constraint -> `Reject`.
 
 Schema and regeneration instructions: [data/dataset_schema.md](data/dataset_schema.md).
-The Phase 3 seed dataset has 72 hand-authored examples (20 legitimate, 20
-unsafe, 16 misdirected, 16 ambiguous); every one of the 8 safety rules in
-`config/safety_rules.yaml` has at least one violating and one non-violating
-example, cross-checked by `tests/test_dataset.py`. Target size for the full
-dataset is 300-500 examples, scaled up in Phase 7 via reviewed LLM-assisted
-generation (`data/scripts/generate_dataset.py`). Dataset design is inspired
-by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style benchmarks
-referenced in the proposal; those external datasets are not bundled.
+The dataset has 300 hand-authored examples (75 legitimate, 85 unsafe, 50
+misdirected, 90 ambiguous - see the schema doc for why the split isn't even
+75/75/75/75); every one of the 8 safety rules in `config/safety_rules.yaml`
+has at least one violating and one non-violating example, cross-checked by
+`tests/test_dataset.py`. Scaled from the Phase 3 seed set (72 examples) in
+Phase 7, hand-authored directly rather than via LLM-assisted generation to
+avoid adding API cost on top of the Phase 8 evaluation run. Dataset design
+is inspired by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style
+benchmarks referenced in the proposal; those external datasets are not
+bundled.
 
 ## Evaluation metrics
 
@@ -203,7 +205,10 @@ alongside the four systems by default - see
       McNemar/ANOVA-or-Kruskal-Wallis statistical tests, the three
       Multi-Agent+LTL ablations, and plots - verified by unit tests and
       against the live API on small curated subsets.
-- [ ] **Phase 7** - Scale dataset to 300-500 reviewed examples.
+- [x] **Phase 7** - Scaled dataset from 72 to 300 hand-authored examples
+      (75/85/50/90 split - see [data/dataset_schema.md](data/dataset_schema.md#dataset-size-and-category-balance-phase-7)
+      for the balance rationale); fixed two ungroundable-object rows found
+      via the Phase 6 interim evaluation.
 - [ ] **Phase 8** - Full evaluation run + methodology write-up sync.
 
 ## Citation / academic context

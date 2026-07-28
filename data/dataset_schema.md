@@ -77,18 +77,33 @@ pipeline should start execution from, by overlaying these fields onto
   has exactly one `knife`, one `laptop`, etc. Classic reference-ambiguity
   benchmarks (e.g. "which of the two bottles?") need multiple instances of
   the same object type to be meaningful, which this environment doesn't
-  model yet. The seed dataset's `ambiguous` examples are therefore mostly
-  genuinely underspecified commands (missing object, missing destination,
-  vague verb) rather than multi-instance reference disambiguation. Adding
-  numbered object instances (`bottle_1`, `bottle_2`, ...) to the ontology
-  would be a natural, backward-compatible extension if that ambiguity type
-  is needed later.
+  model yet. The dataset's `ambiguous` examples are therefore genuinely
+  underspecified commands (missing object, missing destination, vague verb,
+  comparative/contextual reference) rather than multi-instance reference
+  disambiguation. Adding numbered object instances (`bottle_1`, `bottle_2`,
+  ...) to the ontology would be a natural, backward-compatible extension if
+  that ambiguity type is needed later.
 - **`knife` is both `sharp` and `dangerous`.** There's no object in the
   ontology that is sharp but not dangerous (or vice versa), so examples
-  targeting `no_sharp_items_in_child_zone` specifically tend to also trip
-  `no_dangerous_items_in_child_zone` when they use the knife. This is noted
+  targeting `no_sharp_items_in_child_zone` specifically also trip
+  `no_dangerous_items_in_child_zone` (and `no_knife_in_child_room`) whenever
+  they use the knife - in practice these three rules can only be tested
+  jointly through natural language, not independently. This is noted
   per-row via `related_rule_ids` rather than hidden; a future ontology
   extension (e.g. `scissors`: sharp, not dangerous) could disentangle them.
+- **Objects must be drawn from the fixed 5-object list** (`knife`,
+  `medication`, `laptop`, `toy`, `heavy_box`) **or omitted entirely** (for
+  pure door/alarm/stove/move actions). Every agent's system prompt
+  explicitly instructs the LLM never to invent objects outside the schema,
+  so an instruction referencing a real-world object the ontology doesn't
+  model (e.g. "bring me a glass of water") is fundamentally ungroundable -
+  not a pipeline bug, a dataset authoring bug. Two rows (`legit_007`,
+  `legit_008`) originally referenced "glass"/"water" this way; caught via
+  the Phase 6 interim evaluation (several systems correctly rejected/asked
+  for clarification, with rationale text explicitly citing the undefined
+  object) and reworded in Phase 7 to use `toy` instead, preserving the same
+  test intent (a guest safely requesting a non-private, non-restricted
+  item). Worth checking for when writing new rows.
 
 ## Rule coverage
 
@@ -97,22 +112,64 @@ Every rule in `config/safety_rules.yaml` has at least one `unsafe`/
 its non-violating counterpart, both tagged via `related_rule_ids`. Checked
 by `tests/test_dataset.py::test_every_safety_rule_has_violating_and_safe_example`.
 
+## Dataset size and category balance (Phase 7)
+
+The dataset was scaled from the Phase 3 seed set (72 examples) to **300
+examples** (per the researcher's explicit choice to target 300 rather than
+the proposal's upper bound of 500, to control API cost for the Phase 8
+evaluation run, which re-runs the full dataset across every system,
+ablation, and repeat).
+
+The category split is **75 legitimate / 85 unsafe / 50 misdirected / 90
+ambiguous**, not an even 75/75/75/75. This is a deliberate deviation from
+naive equal balance, made because the categories differ in how much
+*genuine* scenario diversity the rule base and ontology can support:
+
+- `misdirected` can only be reached through 2 rules
+  (`lock_door_when_owner_away`, `no_restricted_room_entry_by_guest`).
+  Forcing it to 75 examples would mean ~37 paraphrases of essentially two
+  situations - technically achievable but of doubtful additional value over
+  50.
+- `unsafe` spans 5 naturally-reachable scenario families (6 rules, but
+  `no_knife_in_child_room` and `no_sharp_items_in_child_zone` collapse into
+  one family - see "known limitations" above), so it can support somewhat
+  more volume with real variety (85).
+- `legitimate` and `ambiguous` aren't tied to a fixed number of rules at
+  all - legitimate commands can combine any safe object/action/role
+  combination, and ambiguity can arise from several genuinely distinct
+  mechanisms (missing object, missing destination, vague verb, comparative
+  reference, contextual reference, unbounded scope), so both scale
+  comfortably to 75-90 without excessive repetition.
+
+This still satisfies the proposal's "keep the dataset balanced across the
+four categories as closely as practical" instruction - all four categories
+are within a 50-90 range, none dominates - while being honest about why
+`misdirected` and `unsafe` lean more on phrasing/paraphrase diversity than
+`legitimate`/`ambiguous` do. `tests/test_dataset.py` enforces a floor
+(`MIN_PER_CATEGORY = 10`) and an overall size band (290-310), not an exact
+split, so this rationale can be revisited without breaking tests.
+
 ## Regenerating / extending the dataset
 
-The seed dataset (60-80 hand-authored rows, Phase 3) is meant to unblock
-early pipeline testing before scaling to the full 300-500 example target
-(Phase 7). To extend it:
+The full 300-example dataset was hand-authored directly (Phase 3's 72 seed
+rows plus Phase 7's 228 additional rows), not generated via the Anthropic
+API, specifically to avoid adding generation cost on top of the Phase 8
+evaluation run's cost. To extend it further:
 
 1. Add new rows directly to `data/instructions.jsonl` (one JSON object per
-   line), following this schema.
+   line), following this schema. Double-check any object mentioned is one
+   of the 5 in the ontology (see "known limitations" above) - this is the
+   most common authoring mistake.
 2. Run `pytest tests/test_dataset.py` to validate - it checks schema
    correctness, category/gold_label consistency, id uniqueness, and rule
    coverage.
-3. For scaling to 300-500 examples with LLM-assisted paraphrase/adversarial
-   generation (`data/scripts/generate_dataset.py`, Phase 7), every generated
-   row must still be reviewed and hand-labeled before merging - label
-   correctness is what the entire evaluation depends on, so generation is
-   assistive, not authoritative.
+3. An LLM-assisted generation script (`data/scripts/generate_dataset.py`)
+   was considered but not built, since hand-authoring the 300-example
+   target avoided the extra API cost such a script would incur. If a future
+   scale-up beyond 300 revisits this, every generated row must still be
+   reviewed and hand-labeled before merging - label correctness is what the
+   entire evaluation depends on, so generation would be assistive, not
+   authoritative.
 4. Dataset design is inspired by, not sourced from, benchmarks referenced in
    the proposal (SafeAgentBench, 3DOC, Ambi3D). Those external datasets are
    not bundled; an adapter interface may be added later to optionally

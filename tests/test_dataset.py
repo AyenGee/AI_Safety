@@ -1,8 +1,8 @@
-"""Phase 3 unit tests: dataset schema, loader/validator, and seed dataset content.
+"""Dataset schema, loader/validator, and dataset content unit tests.
 
 No LLM calls - this only exercises intent_filter.dataset and the real
-data/instructions.jsonl seed file against the real environment ontology and
-safety rule base.
+data/instructions.jsonl file (scaled to 300 examples in Phase 7) against the
+real environment ontology and safety rule base.
 """
 
 from pathlib import Path
@@ -23,8 +23,8 @@ ONTOLOGY_PATH = REPO_ROOT / "config" / "environment_ontology.yaml"
 SAFETY_RULES_PATH = REPO_ROOT / "config" / "safety_rules.yaml"
 DATASET_PATH = REPO_ROOT / "data" / "instructions.jsonl"
 
-MIN_SEED_SIZE = 60
-MAX_SEED_SIZE = 80
+MIN_DATASET_SIZE = 290
+MAX_DATASET_SIZE = 310
 MIN_PER_CATEGORY = 10
 
 
@@ -119,7 +119,7 @@ def test_load_dataset_skips_blank_lines(tmp_path):
 
 
 def test_seed_dataset_loads_without_error(examples):
-    assert MIN_SEED_SIZE <= len(examples) <= MAX_SEED_SIZE
+    assert MIN_DATASET_SIZE <= len(examples) <= MAX_DATASET_SIZE
 
 
 def test_seed_dataset_category_balance(examples):

@@ -315,13 +315,44 @@ from running the full evaluation (Phase 8).
 
 ## Dataset design
 
-See [../data/dataset_schema.md](../data/dataset_schema.md) (Phase 3) for the
-instruction schema and category definitions. Dataset design is inspired by,
-but not sourced verbatim from, benchmarks referenced in the proposal
-(SafeAgentBench, 3DOC, Ambi3D - TODO(cite) full references) since those are
-external research datasets that may require separate access/licensing. This
-repository does not assume they are bundled; an adapter interface may be
-added later to optionally import/map from them.
+See [../data/dataset_schema.md](../data/dataset_schema.md) for the
+instruction schema, category definitions, and (as of Phase 7) the
+rationale for the dataset's final size and category split. Dataset design
+is inspired by, but not sourced verbatim from, benchmarks referenced in the
+proposal (SafeAgentBench, 3DOC, Ambi3D - TODO(cite) full references) since
+those are external research datasets that may require separate access/
+licensing. This repository does not assume they are bundled; an adapter
+interface may be added later to optionally import/map from them.
+
+The dataset was built in two passes: a 72-example hand-authored seed (Phase
+3) to unblock early pipeline testing, then scaled to 300 examples (Phase 7)
+by continuing to hand-author directly rather than building the originally-
+planned LLM-assisted generation script - a deliberate choice to avoid
+adding generation API cost on top of the Phase 8 evaluation run's own cost,
+made explicitly by the researcher rather than assumed. The Phase 7 pass
+also fixed two rows (`legit_007`, `legit_008`) discovered, via the Phase 6
+interim evaluation, to reference an object ("glass") outside the ontology's
+fixed 5-object list - every agent is explicitly instructed never to invent
+objects, so those rows were fundamentally ungroundable regardless of
+pipeline quality. This is a good illustration of why running even a small,
+non-final evaluation early (before the dataset was finalized) was worth
+doing: it surfaced a dataset construction bug that static review of the
+JSONL file had not caught.
+
+**Inter-annotator agreement was raised and explicitly not implemented.**
+The 300-example dataset (like the 72-example seed before it) is
+single-annotator: labeled by the researcher (with AI-assisted drafting,
+reviewed by the researcher) rather than by two or more independent
+annotators with a computed agreement statistic (e.g. Cohen's kappa). This
+matters most for the `ambiguous` and `misdirected` categories, where the
+correct label is more of a judgement call than for `legitimate`/`unsafe`.
+Whether inter-annotator agreement should be added for this dataset is
+explicitly flagged as an open methodological question for the supervisors,
+not a decision made unilaterally in this codebase - see the discussion
+recorded in project chat history. If added, it would need `SceneContext`-
+level tooling changes (recording a second annotator's independent labels
+before adjudication) rather than a retrofit onto the existing single-pass
+labels.
 
 ## Deviations from the original proposal
 
@@ -349,6 +380,13 @@ added later to optionally import/map from them.
   (Phase 6)" above. This was the one framing under which the proposal's own
   Recall and FRR definitions combine into the expected FRR = 1 - Recall
   relationship, which is asserted as a unit test rather than just assumed.
+- **Final dataset size is 300 examples**, the lower end of the proposal's
+  300-500 target range, chosen explicitly by the researcher to bound the
+  Phase 8 evaluation's API cost. The dataset was scaled by continuing to
+  hand-author examples directly rather than building the proposal's
+  suggested LLM-assisted generation script, for the same cost reason. The
+  category split (75/85/50/90) is not perfectly even across the four
+  categories - see "Dataset design" above for why.
 
 Further deviations will be appended here as later phases are implemented, so
 the methodology chapter of the final report can cite the actual system
