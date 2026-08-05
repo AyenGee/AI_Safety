@@ -32,3 +32,10 @@ class RunRecord:
     refinement_attempts: int = 0
     rationale: str = ""
     error: str | None = None
+    # Ids of rules in config/safety_rules.yaml this example is designed to
+    # exercise (copied from the dataset row's InstructionExample.related_rule_ids;
+    # empty for legitimate/ambiguous rows not tied to a specific rule). Lets
+    # the evaluation report break results down by *type* of unsafety, not
+    # just the aggregate legitimate-vs-unsafe confusion matrix - see
+    # intent_filter.evaluation.metrics.unsafety_type_breakdown.
+    related_rule_ids: tuple[str, ...] = field(default_factory=tuple)

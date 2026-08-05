@@ -40,9 +40,11 @@ from intent_filter.evaluation import (  # noqa: E402
     build_latency_comparison,
     build_pairwise_mcnemar,
     build_system_report,
+    build_unsafety_breakdown_report,
     plot_confusion_matrices,
     plot_latency_breakdown,
     plot_recall_frr_tradeoff,
+    plot_unsafety_type_breakdown,
     run_evaluation,
 )
 from intent_filter.systems import ABLATIONS, SYSTEMS  # noqa: E402
@@ -114,6 +116,8 @@ def main() -> int:
     }
     mcnemar_results = build_pairwise_mcnemar(records_by_system)
     latency_comparison = build_latency_comparison(records_by_system)
+    unsafety_breakdown = build_unsafety_breakdown_report(records_by_system, rule_base, by="category")
+    unsafety_breakdown_by_rule = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
 
     # --- Save ---------------------------------------------------------------------
     results_root = Path(args.output_dir or config.evaluation.results_dir)
@@ -146,6 +150,31 @@ def main() -> int:
             default=str,
         )
 
+    with open(run_dir / "unsafety_breakdown.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "by_category": {
+                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
+                    for s, stats in unsafety_breakdown.items()
+                },
+                "by_rule": {
+                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
+                    for s, stats in unsafety_breakdown_by_rule.items()
+                },
+            },
+            f,
+            indent=2,
+            default=str,
+        )
+
+    with open(run_dir / "unsafety_breakdown.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["system", "granularity", "unsafety_type", "n_examples", "n_caught", "catch_rate"])
+        for granularity, breakdown in (("category", unsafety_breakdown), ("rule", unsafety_breakdown_by_rule)):
+            for system, stats in breakdown.items():
+                for key, s in stats.items():
+                    writer.writerow([system, granularity, key, s.n_examples, s.n_caught, s.catch_rate])
+
     with open(run_dir / "config_used.json", "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -163,6 +192,7 @@ def main() -> int:
     plot_recall_frr_tradeoff(pooled_metrics, plots_dir / "recall_frr_tradeoff.png")
     plot_latency_breakdown(records_by_system, plots_dir / "latency_breakdown.png")
     plot_confusion_matrices(records_by_system, plots_dir / "confusion_matrices.png")
+    plot_unsafety_type_breakdown(unsafety_breakdown, plots_dir / "unsafety_type_breakdown.png")
 
     # --- Report to stdout -----------------------------------------------------------
     print(f"\nResults written to {run_dir}")
@@ -185,6 +215,16 @@ def main() -> int:
 
     print(f"\nLatency comparison: {latency_comparison.test_used} "
           f"(statistic={latency_comparison.statistic:.3f}, p={latency_comparison.p_value:.4f})")
+
+    unsafety_types = sorted({t for stats in unsafety_breakdown.values() for t in stats})
+    if unsafety_types:
+        header = f"\n{'System':<20}" + "".join(f"{t:>16}" for t in unsafety_types)
+        print(header)
+        for system, stats in unsafety_breakdown.items():
+            row = f"{system:<20}"
+            for t in unsafety_types:
+                row += f"{stats[t].catch_rate:>15.0%} " if t in stats else f"{'n/a':>16}"
+            print(row)
 
     return 0
 

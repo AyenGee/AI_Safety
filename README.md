@@ -66,7 +66,7 @@ intent_filter/            Python package
   systems/                  The four pipeline configurations + ablations registry
   evaluation/                Metrics, statistical tests, run orchestration, plots
   decision.py               Shared decision-layer types + reprompting loop helpers
-data/                     Dataset schema and the 300-example labeled instruction set
+data/                     Dataset schema and the 200-example labeled instruction set
 scripts/                  run_evaluation.py (harness CLI) + run_single_instruction.py (debug CLI)
 tests/                    pytest unit + smoke tests (mocked LLMs, no network calls)
 results/                  Gitignored evaluation run outputs (timestamped per run)
@@ -131,10 +131,15 @@ system/example/repeat outcome with full stage traces), `metrics_summary.csv`/
 `.json` (Recall/Precision/Specificity/F1/FRR/Clarification-Accuracy with
 confidence intervals across repeats, plus latency mean/p50/p95),
 `statistical_tests.json` (pairwise McNemar's tests, ANOVA-or-Kruskal-Wallis
-latency comparison), `plots/` (recall-vs-FRR tradeoff, latency breakdown,
-per-system confusion matrices), and `config_used.json` for reproducibility.
+latency comparison), `unsafety_breakdown.csv`/`.json` (catch rate per type
+of unsafety - sharp/dangerous/private_item/child_zone/restricted/misdirected,
+and per individual rule - so failures can be pinpointed to a specific
+category rather than just an aggregate "unsafe" number), `plots/`
+(recall-vs-FRR tradeoff, latency breakdown, per-system confusion matrices,
+unsafety-type breakdown), and `config_used.json` for reproducibility.
 See [docs/methodology.md](docs/methodology.md#metrics-phase-6) for how the
-metrics are defined and the ablations' exact semantics.
+metrics are defined, [docs/methodology.md](docs/methodology.md#unsafety-type-breakdown-phase-7)
+for the unsafety-type breakdown, and the ablations' exact semantics.
 
 Run tests (no live LLM calls; agents are mocked):
 
@@ -154,14 +159,16 @@ categories with gold Accept/Reject/Clarify labels:
   constraint -> `Reject`.
 
 Schema and regeneration instructions: [data/dataset_schema.md](data/dataset_schema.md).
-The dataset has 300 hand-authored examples (75 legitimate, 85 unsafe, 50
-misdirected, 90 ambiguous - see the schema doc for why the split isn't even
-75/75/75/75); every one of the 8 safety rules in `config/safety_rules.yaml`
+The dataset has 200 hand-authored examples (50 legitimate, 57 unsafe, 33
+misdirected, 60 ambiguous - see the schema doc for why the split isn't even
+50/50/50/50); every one of the 8 safety rules in `config/safety_rules.yaml`
 has at least one violating and one non-violating example, cross-checked by
-`tests/test_dataset.py`. Scaled from the Phase 3 seed set (72 examples) in
-Phase 7, hand-authored directly rather than via LLM-assisted generation to
-avoid adding API cost on top of the Phase 8 evaluation run. Dataset design
-is inspired by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style
+`tests/test_dataset.py`. Scaled from the Phase 3 seed set (72 examples) to
+300 in Phase 7, then trimmed to 200 after supervisor feedback on API cost
+(`data/scripts/trim_dataset.py`, deterministic, coverage-preserving) -
+hand-authored throughout rather than via LLM-assisted generation, to avoid
+adding API cost on top of the Phase 8 evaluation run. Dataset design is
+inspired by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style
 benchmarks referenced in the proposal; those external datasets are not
 bundled.
 
@@ -205,10 +212,14 @@ alongside the four systems by default - see
       McNemar/ANOVA-or-Kruskal-Wallis statistical tests, the three
       Multi-Agent+LTL ablations, and plots - verified by unit tests and
       against the live API on small curated subsets.
-- [x] **Phase 7** - Scaled dataset from 72 to 300 hand-authored examples
-      (75/85/50/90 split - see [data/dataset_schema.md](data/dataset_schema.md#dataset-size-and-category-balance-phase-7)
-      for the balance rationale); fixed two ungroundable-object rows found
-      via the Phase 6 interim evaluation.
+- [x] **Phase 7** - Scaled dataset from 72 to 300 hand-authored examples,
+      then trimmed to 200 (50/57/33/60 split) after supervisor feedback on
+      Phase 8 API cost - see [data/dataset_schema.md](data/dataset_schema.md#dataset-size-and-category-balance-phase-7)
+      for the balance rationale; fixed two ungroundable-object rows found
+      via the Phase 6 interim evaluation; added a per-unsafety-type
+      breakdown to the evaluation harness (see below) per the supervisor's
+      request to pinpoint which categories of unsafe command each system
+      fails on.
 - [ ] **Phase 8** - Full evaluation run + methodology write-up sync.
 
 ## Citation / academic context

@@ -71,6 +71,7 @@ def run_example(
         total_latency_seconds=total_latency,
         latency_by_stage=latency_by_stage,
         refinement_attempts=refinement_attempts,
+        related_rule_ids=tuple(example.related_rule_ids),
         rationale=rationale,
         error=error,
     )

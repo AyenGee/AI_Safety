@@ -1,8 +1,10 @@
 """Dataset schema, loader/validator, and dataset content unit tests.
 
 No LLM calls - this only exercises intent_filter.dataset and the real
-data/instructions.jsonl file (scaled to 300 examples in Phase 7) against the
-real environment ontology and safety rule base.
+data/instructions.jsonl file (scaled to 300 examples in Phase 7, then
+trimmed to 200 per the supervisor's cost guidance - see
+data/scripts/trim_dataset.py) against the real environment ontology and
+safety rule base.
 """
 
 from pathlib import Path
@@ -23,8 +25,8 @@ ONTOLOGY_PATH = REPO_ROOT / "config" / "environment_ontology.yaml"
 SAFETY_RULES_PATH = REPO_ROOT / "config" / "safety_rules.yaml"
 DATASET_PATH = REPO_ROOT / "data" / "instructions.jsonl"
 
-MIN_DATASET_SIZE = 290
-MAX_DATASET_SIZE = 310
+MIN_DATASET_SIZE = 195
+MAX_DATASET_SIZE = 205
 MIN_PER_CATEGORY = 10
 
 

@@ -114,47 +114,47 @@ by `tests/test_dataset.py::test_every_safety_rule_has_violating_and_safe_example
 
 ## Dataset size and category balance (Phase 7)
 
-The dataset was scaled from the Phase 3 seed set (72 examples) to **300
-examples** (per the researcher's explicit choice to target 300 rather than
-the proposal's upper bound of 500, to control API cost for the Phase 8
-evaluation run, which re-runs the full dataset across every system,
-ablation, and repeat).
+The dataset was scaled from the Phase 3 seed set (72 examples) to 300
+examples, then **trimmed to 200** after discussing cost with the
+supervisor, who suggested 100-200 examples was preferable to 300 given the
+API cost of the Phase 8 evaluation run (which re-runs the full dataset
+across every system, ablation, and repeat - cost scales linearly with
+dataset size). `data/scripts/trim_dataset.py` performs this trim
+deterministically and is kept in the repo as the audit trail for how the
+200-example dataset was derived from the 300-example one, rather than
+re-authoring from scratch.
 
-The category split is **75 legitimate / 85 unsafe / 50 misdirected / 90
-ambiguous**, not an even 75/75/75/75. This is a deliberate deviation from
-naive equal balance, made because the categories differ in how much
-*genuine* scenario diversity the rule base and ontology can support:
+The category split is **50 legitimate / 57 unsafe / 33 misdirected / 60
+ambiguous** - a uniform ~67% reduction from the 300-example split (75/85/50/90),
+preserving the same deliberate deviation from naive equal balance as before,
+made because the categories differ in how much *genuine* scenario diversity
+the rule base and ontology can support:
 
 - `misdirected` can only be reached through 2 rules
-  (`lock_door_when_owner_away`, `no_restricted_room_entry_by_guest`).
-  Forcing it to 75 examples would mean ~37 paraphrases of essentially two
-  situations - technically achievable but of doubtful additional value over
-  50.
+  (`lock_door_when_owner_away`, `no_restricted_room_entry_by_guest`), so it
+  stays the smallest category.
 - `unsafe` spans 5 naturally-reachable scenario families (6 rules, but
   `no_knife_in_child_room` and `no_sharp_items_in_child_zone` collapse into
-  one family - see "known limitations" above), so it can support somewhat
-  more volume with real variety (85).
+  one family - see "known limitations" above), so it supports somewhat more
+  volume.
 - `legitimate` and `ambiguous` aren't tied to a fixed number of rules at
-  all - legitimate commands can combine any safe object/action/role
-  combination, and ambiguity can arise from several genuinely distinct
-  mechanisms (missing object, missing destination, vague verb, comparative
-  reference, contextual reference, unbounded scope), so both scale
-  comfortably to 75-90 without excessive repetition.
+  all, so both scale comfortably without excessive repetition.
 
-This still satisfies the proposal's "keep the dataset balanced across the
-four categories as closely as practical" instruction - all four categories
-are within a 50-90 range, none dominates - while being honest about why
-`misdirected` and `unsafe` lean more on phrasing/paraphrase diversity than
-`legitimate`/`ambiguous` do. `tests/test_dataset.py` enforces a floor
-(`MIN_PER_CATEGORY = 10`) and an overall size band (290-310), not an exact
-split, so this rationale can be revisited without breaking tests.
+Because the trim preserved each category's internal proportions, per-rule
+coverage stayed reasonably even too: 11-23 examples per rule at 200 (was
+16-35 at 300) - see the rule coverage table this generates, checked by
+`tests/test_dataset.py::test_every_safety_rule_has_violating_and_safe_example`.
+`tests/test_dataset.py` enforces a floor (`MIN_PER_CATEGORY = 10`) and an
+overall size band (195-205), not an exact split, so this rationale can be
+revisited without breaking tests.
 
 ## Regenerating / extending the dataset
 
-The full 300-example dataset was hand-authored directly (Phase 3's 72 seed
-rows plus Phase 7's 228 additional rows), not generated via the Anthropic
-API, specifically to avoid adding generation cost on top of the Phase 8
-evaluation run's cost. To extend it further:
+The 200-example dataset was hand-authored directly (Phase 3's 72 seed rows,
+Phase 7's 228 additional rows to reach 300, then a deterministic trim to
+200), not generated via the Anthropic API, specifically to avoid adding
+generation cost on top of the Phase 8 evaluation run's cost. To extend it
+further:
 
 1. Add new rows directly to `data/instructions.jsonl` (one JSON object per
    line), following this schema. Double-check any object mentioned is one
@@ -164,13 +164,24 @@ evaluation run's cost. To extend it further:
    correctness, category/gold_label consistency, id uniqueness, and rule
    coverage.
 3. An LLM-assisted generation script (`data/scripts/generate_dataset.py`)
-   was considered but not built, since hand-authoring the 300-example
-   target avoided the extra API cost such a script would incur. If a future
-   scale-up beyond 300 revisits this, every generated row must still be
-   reviewed and hand-labeled before merging - label correctness is what the
-   entire evaluation depends on, so generation would be assistive, not
-   authoritative.
+   was considered but not built, since hand-authoring avoided the extra API
+   cost such a script would incur. If a future scale-up revisits this,
+   every generated row must still be reviewed and hand-labeled before
+   merging - label correctness is what the entire evaluation depends on, so
+   generation would be assistive, not authoritative.
 4. Dataset design is inspired by, not sourced from, benchmarks referenced in
    the proposal (SafeAgentBench, 3DOC, Ambi3D). Those external datasets are
    not bundled; an adapter interface may be added later to optionally
    import/map from them into this schema.
+
+## Unsafety-type breakdown (Phase 7 / evaluation harness)
+
+Per the supervisor's feedback, the evaluation harness reports results
+broken down by *type of unsafety*, not just the aggregate legitimate-vs-
+unsafe confusion matrix. This reuses data already in this schema rather
+than requiring new fields: `related_rule_ids` links every unsafe/misdirected
+row to the rule(s) it violates, and each rule in `config/safety_rules.yaml`
+carries a `category` (`sharp`, `dangerous`, `private_item`, `child_zone`,
+`restricted`, `misdirected`) - six distinct unsafety types. See
+`intent_filter/evaluation/metrics.py::unsafety_type_breakdown` and
+`docs/methodology.md` for the reporting design.

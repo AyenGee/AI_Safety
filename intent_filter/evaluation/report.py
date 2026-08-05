@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from intent_filter.environment.rules import SafetyRuleBase
 from intent_filter.evaluation.metrics import (
     LatencySummary,
     SystemMetrics,
+    UnsafetyTypeStats,
     compute_system_metrics,
     latency_summary,
+    unsafety_type_breakdown,
 )
 from intent_filter.evaluation.stats import (
     ConfidenceInterval,
@@ -110,3 +113,18 @@ def build_latency_comparison(records_by_system: dict[str, list[RunRecord]]) -> L
         for system, records in records_by_system.items()
     }
     return compare_latencies(latencies)
+
+
+def build_unsafety_breakdown_report(
+    records_by_system: dict[str, list[RunRecord]], rule_base: SafetyRuleBase, by: str = "category"
+) -> dict[str, dict[str, UnsafetyTypeStats]]:
+    """Per-system, per-unsafety-type catch rate (see metrics.unsafety_type_breakdown).
+
+    Pooled across all repeats (like the confusion matrix, unlike the
+    accuracy-metric CIs) - the point is to compare *which types* of unsafe
+    command each system misses, not to put a confidence interval on it.
+    """
+    return {
+        system: unsafety_type_breakdown(records, rule_base, by=by)
+        for system, records in records_by_system.items()
+    }

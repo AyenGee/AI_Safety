@@ -244,6 +244,38 @@ t-distribution mean +/- CI across those per-repeat values
 (`intent_filter/evaluation/report.build_system_report`), matching the
 proposal's "reports mean +/- confidence interval per metric".
 
+## Unsafety-type breakdown (Phase 7)
+
+Added in response to supervisor feedback on the Phase 6 interim results: the
+aggregate confusion matrix above answers *whether* a system catches unsafe/
+misdirected commands, not *which kinds* it struggles with. Two taxonomies
+already present in the codebase support a finer breakdown without adding
+any new labels:
+
+- every unsafe/misdirected dataset row's `related_rule_ids` (Phase 3) names
+  the specific rule(s) it's designed to violate;
+- every rule in `config/safety_rules.yaml` carries a `category` tag -
+  `sharp`, `dangerous`, `private_item`, `child_zone`, `restricted`,
+  `misdirected` - six genuinely distinct types of unsafety.
+
+`intent_filter/evaluation/metrics.unsafety_type_breakdown` computes, per
+type, a **catch rate**: of all unsafe/misdirected records tagged with that
+type, the fraction the system did *not* respond Accept to (Reject or
+Clarify both count, matching the specificity definition above - asking for
+clarification instead of blindly executing an unsafe command is still a
+safety outcome, even if Reject would have been the more precise answer). A
+record can contribute to more than one bucket if it's tagged with rules
+spanning multiple categories (e.g. the knife-in-child-room examples trip
+`sharp`, `dangerous`, and `child_zone` at once).
+
+Two granularities are computed and saved: `by="category"` (six buckets,
+more examples each - the headline `unsafety_type_breakdown.png` grouped bar
+chart and the primary reporting table) and `by="rule"` (eight buckets, finer
+detail, saved to `unsafety_breakdown.csv`/`.json` alongside the category
+view for drilling in further). Pooled across all repeats, like the
+confusion matrix - the point is comparing *which types* each system misses,
+not putting a confidence interval on it.
+
 ## Ablation studies (Phase 6)
 
 Implemented as boolean flags on `multi_agent_ltl.run()` itself
@@ -380,13 +412,22 @@ labels.
   (Phase 6)" above. This was the one framing under which the proposal's own
   Recall and FRR definitions combine into the expected FRR = 1 - Recall
   relationship, which is asserted as a unit test rather than just assumed.
-- **Final dataset size is 300 examples**, the lower end of the proposal's
-  300-500 target range, chosen explicitly by the researcher to bound the
-  Phase 8 evaluation's API cost. The dataset was scaled by continuing to
-  hand-author examples directly rather than building the proposal's
-  suggested LLM-assisted generation script, for the same cost reason. The
-  category split (75/85/50/90) is not perfectly even across the four
-  categories - see "Dataset design" above for why.
+- **Final dataset size is 200 examples**, below the proposal's 300-500
+  target range. The dataset was first scaled to 300 (itself already the
+  low end of that range, to bound Phase 8's API cost), then trimmed to 200
+  after direct supervisor feedback that even 300 was more than needed given
+  cost - see `data/scripts/trim_dataset.py` and
+  `data/dataset_schema.md#dataset-size-and-category-balance-phase-7`. Both
+  the 300-example dataset and the 200-example trim were hand-authored/
+  hand-derived directly rather than via the proposal's suggested
+  LLM-assisted generation script, for the same cost reason. The category
+  split (50/57/33/60) is not perfectly even across the four categories -
+  see "Dataset design" above for why.
+- **Results are additionally broken down by type of unsafety** (rule
+  category and individual rule), which the original proposal's metrics list
+  did not specify - added per direct supervisor feedback requesting the
+  ability to pinpoint which kinds of unsafe command each system fails on.
+  See "Unsafety-type breakdown (Phase 7)" above.
 
 Further deviations will be appended here as later phases are implemented, so
 the methodology chapter of the final report can cite the actual system

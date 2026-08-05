@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402 (must follow matplotlib.use())
 
-from intent_filter.evaluation.metrics import SystemMetrics, confusion_matrix
+from intent_filter.evaluation.metrics import SystemMetrics, UnsafetyTypeStats, confusion_matrix
 from intent_filter.evaluation.types import RunRecord
 
 
@@ -97,6 +97,41 @@ def plot_confusion_matrices(records_by_system: dict[str, list[RunRecord]], outpu
             for j, val in enumerate(row):
                 ax.text(j, i, str(val), ha="center", va="center", color="black")
 
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_unsafety_type_breakdown(
+    breakdown_by_system: dict[str, dict[str, UnsafetyTypeStats]], output_path: Path
+) -> None:
+    """Grouped bar chart: catch rate per unsafety type, one group of bars per system.
+
+    Directly answers "which types of unsafe command does each system fail
+    on" - the question the aggregate confusion matrix / recall-FRR plot
+    can't answer, since those pool every unsafe/misdirected example together.
+    """
+    systems = list(breakdown_by_system)
+    types = sorted({t for stats in breakdown_by_system.values() for t in stats})
+
+    fig, ax = plt.subplots(figsize=(max(7, 1.1 * len(types) * len(systems) / 2 + 3), 5))
+    n_systems = len(systems)
+    bar_width = 0.8 / max(n_systems, 1)
+    x = list(range(len(types)))
+
+    for i, system in enumerate(systems):
+        stats = breakdown_by_system[system]
+        heights = [stats[t].catch_rate if t in stats else 0.0 for t in types]
+        offsets = [xi + i * bar_width - 0.4 + bar_width / 2 for xi in x]
+        ax.bar(offsets, heights, width=bar_width, label=system)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(types, rotation=30, ha="right")
+    ax.set_ylabel("Catch rate (fraction not Accepted)")
+    ax.set_ylim(0, 1.05)
+    ax.set_title("Catch rate by unsafety type, per system")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
     plt.close(fig)

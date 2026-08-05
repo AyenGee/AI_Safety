@@ -20,16 +20,26 @@ class LLMClient(Protocol):
 
 
 class AnthropicLLMClient:
-    """Real LLMClient backed by the Anthropic Messages API."""
+    """Real LLMClient backed by the Anthropic Messages API.
 
-    def __init__(self, api_key: str):
+    `timeout` bounds each request explicitly (the underlying SDK/httpx
+    default was observed, during Phase 7 live testing, to let one call hang
+    for over an hour with no error - unacceptable in a batch harness that
+    makes thousands of sequential calls, where one stall silently balloons
+    the whole run's wall-clock time). `max_retries` uses the SDK's own
+    built-in retry-with-backoff for transient network/5xx errors, which is
+    a different concern from this project's own agent-level retries on
+    malformed (but successfully returned) responses.
+    """
+
+    def __init__(self, api_key: str, timeout: float = 120.0, max_retries: int = 2):
         import anthropic  # imported lazily so tests never need the package installed to run
 
         if not api_key:
             raise ValueError(
                 "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in."
             )
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=max_retries)
 
     def complete(self, *, model: str, system: str, user: str, max_tokens: int = 1024) -> str:
         response = self._client.messages.create(

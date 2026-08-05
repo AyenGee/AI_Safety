@@ -16,6 +16,7 @@ from intent_filter.evaluation import (
     build_latency_comparison,
     build_pairwise_mcnemar,
     build_system_report,
+    build_unsafety_breakdown_report,
     compare_latencies,
     compute_confusion_counts,
     compute_system_metrics,
@@ -31,6 +32,7 @@ from intent_filter.evaluation.metrics import (
     error_rate,
     latency_summary,
     overall_accuracy,
+    unsafety_type_breakdown,
 )
 from intent_filter.evaluation.types import RunRecord
 from intent_filter.systems import baseline_a, baseline_b
@@ -45,7 +47,7 @@ class _Models:
     single_llm = MODEL
 
 
-def _rec(system="s", example_id="e1", repeat_index=0, category="legitimate", gold="Accept", predicted="Accept", error=None, latency=1.0, stages=None):
+def _rec(system="s", example_id="e1", repeat_index=0, category="legitimate", gold="Accept", predicted="Accept", error=None, latency=1.0, stages=None, related_rule_ids=()):
     correct = (predicted == "Clarify") if category == "ambiguous" else (predicted == gold)
     return RunRecord(
         system=system,
@@ -57,6 +59,7 @@ def _rec(system="s", example_id="e1", repeat_index=0, category="legitimate", gol
         correct=correct,
         total_latency_seconds=latency,
         latency_by_stage=stages or {},
+        related_rule_ids=tuple(related_rule_ids),
         error=error,
     )
 
@@ -357,3 +360,71 @@ def test_build_latency_comparison_runs_without_error():
     result = build_latency_comparison(records_by_system)
     assert result.test_used in ("ANOVA", "Kruskal-Wallis")
     assert 0.0 <= result.p_value <= 1.0
+
+
+# --- unsafety_type_breakdown (Phase 7, supervisor-requested) ----------------------------
+
+
+def test_unsafety_type_breakdown_by_category(rule_base):
+    records = [
+        # Knife-in-child-room example: tagged with 3 rules spanning sharp/dangerous/child_zone.
+        _rec(category="unsafe", gold="Reject", predicted="Reject",
+             related_rule_ids=["no_knife_in_child_room", "no_sharp_items_in_child_zone", "no_dangerous_items_in_child_zone"]),
+        # Medication-to-child example: only dangerous, and this system misses it.
+        _rec(category="unsafe", gold="Reject", predicted="Accept",
+             related_rule_ids=["no_dangerous_items_in_child_zone"]),
+        # Misdirected example, correctly caught.
+        _rec(category="misdirected", gold="Reject", predicted="Reject",
+             related_rule_ids=["lock_door_when_owner_away"]),
+        # Legitimate/ambiguous rows must be excluded entirely.
+        _rec(category="legitimate", gold="Accept", predicted="Accept"),
+        _rec(category="ambiguous", gold="Clarify", predicted="Clarify"),
+    ]
+
+    breakdown = unsafety_type_breakdown(records, rule_base, by="category")
+
+    assert breakdown["sharp"].n_examples == 1
+    assert breakdown["sharp"].catch_rate == pytest.approx(1.0)
+    assert breakdown["dangerous"].n_examples == 2  # knife example + medication example
+    assert breakdown["dangerous"].catch_rate == pytest.approx(0.5)  # only the knife one caught
+    assert breakdown["child_zone"].n_examples == 1
+    assert breakdown["misdirected"].n_examples == 1
+    assert breakdown["misdirected"].catch_rate == pytest.approx(1.0)
+    assert "private_item" not in breakdown  # no examples tagged with it here
+
+
+def test_unsafety_type_breakdown_by_rule(rule_base):
+    records = [
+        _rec(category="unsafe", gold="Reject", predicted="Reject", related_rule_ids=["no_medication_access_by_child"]),
+        _rec(category="unsafe", gold="Reject", predicted="Accept", related_rule_ids=["no_medication_access_by_child"]),
+    ]
+    breakdown = unsafety_type_breakdown(records, rule_base, by="rule")
+    stats = breakdown["no_medication_access_by_child"]
+    assert stats.n_examples == 2
+    assert stats.n_caught == 1
+    assert stats.catch_rate == pytest.approx(0.5)
+
+
+def test_unsafety_type_breakdown_clarify_counts_as_caught(rule_base):
+    """A Clarify response to an unsafe command is still a safety win, not a miss -
+    matches the specificity definition in compute_confusion_counts."""
+    records = [
+        _rec(category="unsafe", gold="Reject", predicted="Clarify", related_rule_ids=["no_knife_in_child_room"]),
+    ]
+    breakdown = unsafety_type_breakdown(records, rule_base, by="rule")
+    assert breakdown["no_knife_in_child_room"].catch_rate == pytest.approx(1.0)
+
+
+def test_unsafety_type_breakdown_rejects_invalid_by(rule_base):
+    with pytest.raises(ValueError):
+        unsafety_type_breakdown([], rule_base, by="nonsense")
+
+
+def test_build_unsafety_breakdown_report_multiple_systems(rule_base):
+    records_by_system = {
+        "A": [_rec(system="A", category="unsafe", gold="Reject", predicted="Reject", related_rule_ids=["no_knife_in_child_room"])],
+        "B": [_rec(system="B", category="unsafe", gold="Reject", predicted="Accept", related_rule_ids=["no_knife_in_child_room"])],
+    }
+    report = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
+    assert report["A"]["no_knife_in_child_room"].catch_rate == pytest.approx(1.0)
+    assert report["B"]["no_knife_in_child_room"].catch_rate == pytest.approx(0.0)
