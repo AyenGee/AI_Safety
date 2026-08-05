@@ -428,6 +428,34 @@ labels.
   did not specify - added per direct supervisor feedback requesting the
   ability to pinpoint which kinds of unsafe command each system fails on.
   See "Unsafety-type breakdown (Phase 7)" above.
+- **A proposal to add harder dataset categories (implicit/commonsense safety
+  reasoning) was considered and explicitly not adopted.** An independent
+  review (a separate Claude conversation, given only the dataset as a CSV,
+  not this codebase) proposed adding categories like ambiguous-referent-
+  with-irreversible-resolution, timing/occupancy, stale standing rules,
+  resident-specific health profiles, third-party harm, and action
+  composition, plus a 5-class label space
+  (`Accept_with_precondition`/`Reject_unsafe`/`Escalate_to_human`) to score
+  them. Two of that review's concrete findings were verified against the
+  real dataset file and fixed (see "Dataset enhancement pass" in
+  `data/dataset_schema.md`); the categories/label-space proposal itself was
+  not, for a structural reason rather than a scope-conservatism one: this
+  system's entire mechanism is a deterministic verifier checking a
+  trajectory against a *formally specified* rule base. The proposed
+  categories are precisely the ones where the correct action depends on
+  facts outside any formal ontology (an individual resident's allergies, an
+  unstated occupancy schedule, whether a standing rule has gone stale) -
+  LTL verification cannot help with those regardless of how the dataset is
+  built, since the verifier can only check what's in its ontology. Adding
+  them without first building a substantially richer environment (Phase 1),
+  rule base, and label space (Phases 4-6) would risk producing a result
+  that reads as "LTL verification doesn't help" on a class of problem it
+  was never positioned to address - not a finding about formal verification,
+  a category error in what was tested. The system's actual scope - explicit,
+  formally-specifiable rule violations - is stated here as a deliberate
+  boundary, not an oversight; whether extending past it is worthwhile for
+  this thesis is a research-direction question raised for the supervisors
+  rather than decided unilaterally in this codebase.
 
 Further deviations will be appended here as later phases are implemented, so
 the methodology chapter of the final report can cite the actual system

@@ -167,8 +167,21 @@ has at least one violating and one non-violating example, cross-checked by
 300 in Phase 7, then trimmed to 200 after supervisor feedback on API cost
 (`data/scripts/trim_dataset.py`, deterministic, coverage-preserving) -
 hand-authored throughout rather than via LLM-assisted generation, to avoid
-adding API cost on top of the Phase 8 evaluation run. Dataset design is
-inspired by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style
+adding API cost on top of the Phase 8 evaluation run.
+
+The environment's object vocabulary was later expanded from 5 to 10 objects
+(`scissors`, `cleaning_spray`, `wallet`, `book`, `remote_control` added to
+the original `knife`/`medication`/`laptop`/`toy`/`heavy_box`) and 18 of the
+200 rows rewritten to use them, in response to an external review that
+found some object words were near-perfect label predictors (e.g. `knife`
+almost always co-occurred with `Reject`) - see
+[data/dataset_schema.md](data/dataset_schema.md#dataset-enhancement-pass-phase-7-post-external-review)
+for exactly what was fixed and, just as importantly, what was reviewed and
+deliberately *not* adopted (a proposal to add categories requiring facts
+outside this system's formal ontology, which the LTL verifier structurally
+cannot help with regardless of dataset changes).
+
+Dataset design is inspired by, not sourced from, SafeAgentBench / 3DOC / Ambi3D-style
 benchmarks referenced in the proposal; those external datasets are not
 bundled.
 
@@ -219,7 +232,10 @@ alongside the four systems by default - see
       via the Phase 6 interim evaluation; added a per-unsafety-type
       breakdown to the evaluation harness (see below) per the supervisor's
       request to pinpoint which categories of unsafe command each system
-      fails on.
+      fails on; expanded the object ontology from 5 to 10 objects and gave
+      all 60 ambiguous items varied scenes, in response to an external
+      dataset review - see [data/dataset_schema.md](data/dataset_schema.md#dataset-enhancement-pass-phase-7-post-external-review)
+      for what was fixed and what was deliberately not adopted.
 - [ ] **Phase 8** - Full evaluation run + methodology write-up sync.
 
 ## Citation / academic context

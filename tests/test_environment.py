@@ -36,7 +36,10 @@ def ontology():
 
 def test_ontology_loads_expected_rooms_and_objects(ontology):
     assert set(ontology.rooms) == {"kitchen", "bedroom", "child_room", "bathroom", "garage"}
-    assert set(ontology.objects) == {"knife", "medication", "laptop", "toy", "heavy_box"}
+    assert set(ontology.objects) == {
+        "knife", "medication", "laptop", "toy", "heavy_box",
+        "scissors", "cleaning_spray", "wallet", "book", "remote_control",
+    }
     assert set(ontology.roles) == {"owner", "child", "guest"}
 
 
@@ -53,6 +56,25 @@ def test_object_properties(ontology):
     assert ontology.obj("medication").has_property("dangerous")
     assert ontology.obj("laptop").has_property("private_item")
     assert not ontology.obj("toy").properties
+
+
+def test_new_objects_disentangle_sharp_dangerous_private(ontology):
+    """scissors/cleaning_spray/wallet each isolate one property that used to
+    be entangled with another on the original 5 objects (e.g. knife was
+    always both sharp and dangerous at once) - see dataset_schema.md."""
+    assert ontology.obj("scissors").has_property("sharp")
+    assert not ontology.obj("scissors").has_property("dangerous")
+
+    assert ontology.obj("cleaning_spray").has_property("dangerous")
+    assert not ontology.obj("cleaning_spray").has_property("sharp")
+    assert not ontology.obj("cleaning_spray").has_property("private_item")
+
+    assert ontology.obj("wallet").has_property("private_item")
+    assert not ontology.obj("wallet").has_property("dangerous")
+    assert not ontology.obj("wallet").has_property("fragile")
+
+    assert not ontology.obj("book").properties
+    assert ontology.obj("remote_control").has_property("fragile")
 
 
 def test_unknown_room_and_object_raise(ontology):

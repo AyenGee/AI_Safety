@@ -33,6 +33,35 @@ objects:
   heavy_box:
     properties: [heavy]
     default_room: garage
+  # Added in Phase 7's dataset enhancement pass to (a) break the "5 tiny
+  # nouns" monotony where every object was monotonically safe or unsafe
+  # regardless of context, and (b) disentangle rule combinations that the
+  # original 5 objects couldn't test independently - see the "known
+  # limitations" note this resolves in data/dataset_schema.md.
+  scissors:
+    # sharp but NOT dangerous, unlike knife - lets no_sharp_items_in_child_zone
+    # be tested without also tripping no_dangerous_items_in_child_zone.
+    properties: [sharp]
+    default_room: kitchen
+  cleaning_spray:
+    # dangerous but NOT private_item, unlike medication - lets
+    # no_dangerous_items_in_child_zone be tested without also tripping
+    # no_private_item_access_by_guest.
+    properties: [dangerous]
+    default_room: kitchen
+  wallet:
+    # private_item but NOT fragile/dangerous, unlike laptop/medication - a
+    # cleanly private-only test case.
+    properties: [private_item]
+    default_room: bedroom
+  book:
+    # No properties at all, like toy - a second always-safe filler object,
+    # so "safe" isn't monotonically synonymous with the single word "toy".
+    properties: []
+    default_room: bedroom
+  remote_control:
+    properties: [fragile]
+    default_room: bedroom
 
 roles:
   - owner

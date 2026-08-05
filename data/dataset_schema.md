@@ -83,16 +83,8 @@ pipeline should start execution from, by overlaying these fields onto
   disambiguation. Adding numbered object instances (`bottle_1`, `bottle_2`,
   ...) to the ontology would be a natural, backward-compatible extension if
   that ambiguity type is needed later.
-- **`knife` is both `sharp` and `dangerous`.** There's no object in the
-  ontology that is sharp but not dangerous (or vice versa), so examples
-  targeting `no_sharp_items_in_child_zone` specifically also trip
-  `no_dangerous_items_in_child_zone` (and `no_knife_in_child_room`) whenever
-  they use the knife - in practice these three rules can only be tested
-  jointly through natural language, not independently. This is noted
-  per-row via `related_rule_ids` rather than hidden; a future ontology
-  extension (e.g. `scissors`: sharp, not dangerous) could disentangle them.
-- **Objects must be drawn from the fixed 5-object list** (`knife`,
-  `medication`, `laptop`, `toy`, `heavy_box`) **or omitted entirely** (for
+- **Objects must be drawn from the ontology's object list** (10 objects as
+  of the Phase 7 enhancement pass - see below) **or omitted entirely** (for
   pure door/alarm/stove/move actions). Every agent's system prompt
   explicitly instructs the LLM never to invent objects outside the schema,
   so an instruction referencing a real-world object the ontology doesn't
@@ -101,9 +93,69 @@ pipeline should start execution from, by overlaying these fields onto
   `legit_008`) originally referenced "glass"/"water" this way; caught via
   the Phase 6 interim evaluation (several systems correctly rejected/asked
   for clarification, with rationale text explicitly citing the undefined
-  object) and reworded in Phase 7 to use `toy` instead, preserving the same
-  test intent (a guest safely requesting a non-private, non-restricted
-  item). Worth checking for when writing new rows.
+  object) and reworded. Worth checking for when writing new rows.
+
+## Dataset enhancement pass (Phase 7, post-external-review)
+
+An independent Claude conversation reviewing the 200-example dataset (given
+only a CSV export, not this codebase) flagged several issues. Two were
+verified against the real file and fixed within the existing architecture
+(no rule/label-space/ontology-paradigm changes); the review's larger
+proposal (new categories requiring resident profiles, occupancy/timing,
+composition, a 5-class label space) was consciously **not** adopted - see
+"Deviations from the original proposal" in `docs/methodology.md` for the
+full reasoning (in short: those categories require facts outside any formal
+ontology this system has, so LTL verification structurally cannot help with
+them regardless of dataset changes - testing them wouldn't evaluate this
+system's actual mechanism).
+
+**Fixed: object monotonicity.** Previously `knife` was always both `sharp`
+and `dangerous` at once, so `no_sharp_items_in_child_zone` and
+`no_dangerous_items_in_child_zone` could never be tripped independently
+through natural language - and a handful of nouns (`toy`, `knife`,
+`medicine`) each appeared 6+ times with ≥85% purity toward one label,
+readable as a shortcut. Five new objects were added to
+`config/environment_ontology.yaml`, each isolating one property that used
+to be entangled with another:
+
+| Object | Properties | Disentangles |
+|---|---|---|
+| `scissors` | `sharp` | from `dangerous` (unlike `knife`) |
+| `cleaning_spray` | `dangerous` | from `sharp` and `private_item` (unlike `knife`/`medication`) |
+| `wallet` | `private_item` | from `dangerous`/`fragile` (unlike `medication`/`laptop`) |
+| `book` | none | a second always-safe filler, so "safe" isn't carried by the single word `toy` |
+| `remote_control` | `fragile` | an always-safe-for-current-rules filler with a different property tag |
+
+All five use properties `derived_propositions()` already computed and the
+existing 8 rules already check generically (`holds_sharp_item`,
+`holds_dangerous_item`, `holds_private_item`) - zero code changes, pure
+ontology data addition. 18 of the 200 rows (9%) were then rewritten to use
+the new objects in place of a repeated old one, preserving each row's
+`related_rule_ids`/`gold_label`/category exactly (a substitution, not new
+content) - see `data/scripts/enhance_dataset.py` for the exact mapping.
+Verified live against the real API: a scissors-in-child-zone instruction is
+correctly rejected citing *only* the sharp-item rule, not the knife-specific
+or dangerous-item rules, confirming the disentanglement holds in practice,
+not just in the deterministic checks.
+
+**Fixed: identical scenes across all `ambiguous` rows.** All 60 previously
+shared the exact same default `scene_context`. Rotated through 8 varied
+scenes (room/role/world-state flags, 7-8 rows each) via
+`data/scripts/enhance_dataset.py`. `held_objects`/`object_locations` were
+deliberately left untouched throughout - introducing a specific held object
+into the scene could accidentally resolve the pronoun-reference ambiguity
+an item is designed to test (e.g. "put it back" stops being ambiguous if
+the scene says the agent is holding exactly one named object).
+
+**Investigated and found not applicable to this pipeline: "`scene_context`
+leaks the label."** The external review found `scene_context == {}`
+perfectly predicts `Clarify` in the raw JSONL. Verified this is true of the
+raw file but does not threaten this project's actual systems: `SceneContext()`
+and an explicit dict with every field set to its default produce a
+byte-identical `WorldState` (checked directly), and every agent only ever
+sees the fully-rendered scene text, never the raw dict - so "was
+scene_context `{}` in the source file" is not a signal any agent has access
+to. The *diversity* fix above was still worth doing on its own merits.
 
 ## Rule coverage
 
@@ -133,10 +185,11 @@ the rule base and ontology can support:
 - `misdirected` can only be reached through 2 rules
   (`lock_door_when_owner_away`, `no_restricted_room_entry_by_guest`), so it
   stays the smallest category.
-- `unsafe` spans 5 naturally-reachable scenario families (6 rules, but
-  `no_knife_in_child_room` and `no_sharp_items_in_child_zone` collapse into
-  one family - see "known limitations" above), so it supports somewhat more
-  volume.
+- `unsafe` spans 6 rules; `no_knife_in_child_room` and
+  `no_sharp_items_in_child_zone` used to collapse into one family whenever
+  the knife was involved (see "Dataset enhancement pass" above - since
+  fixed via `scissors`, which trips only the latter), so it supports
+  somewhat more volume.
 - `legitimate` and `ambiguous` aren't tied to a fixed number of rules at
   all, so both scale comfortably without excessive repetition.
 
@@ -158,8 +211,12 @@ further:
 
 1. Add new rows directly to `data/instructions.jsonl` (one JSON object per
    line), following this schema. Double-check any object mentioned is one
-   of the 5 in the ontology (see "known limitations" above) - this is the
-   most common authoring mistake.
+   of the 10 in the ontology (see "known limitations" above) - this is the
+   most common authoring mistake. Favor an object whose properties actually
+   test what you intend (e.g. use `scissors` for a sharp-only case,
+   `cleaning_spray` for dangerous-only, `wallet` for private-only) rather
+   than defaulting to `knife`/`medication` out of habit - see "Dataset
+   enhancement pass" above for why that matters.
 2. Run `pytest tests/test_dataset.py` to validate - it checks schema
    correctness, category/gold_label consistency, id uniqueness, and rule
    coverage.
