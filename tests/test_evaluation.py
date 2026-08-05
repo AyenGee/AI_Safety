@@ -34,6 +34,7 @@ from intent_filter.evaluation.metrics import (
     overall_accuracy,
     unsafety_type_breakdown,
 )
+from intent_filter.evaluation.plots import plot_unsafety_type_breakdown
 from intent_filter.evaluation.types import RunRecord
 from intent_filter.systems import baseline_a, baseline_b
 
@@ -428,3 +429,26 @@ def test_build_unsafety_breakdown_report_multiple_systems(rule_base):
     report = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
     assert report["A"]["no_knife_in_child_room"].catch_rate == pytest.approx(1.0)
     assert report["B"]["no_knife_in_child_room"].catch_rate == pytest.approx(0.0)
+
+
+def test_plot_unsafety_type_breakdown_renders_both_granularities(rule_base, tmp_path):
+    """scripts/run_evaluation.py renders this at both category and rule
+    granularity, distinguished only by a custom title - smoke-test both."""
+    records_by_system = {
+        "A": [
+            _rec(system="A", category="unsafe", gold="Reject", predicted="Reject",
+                 related_rule_ids=["no_knife_in_child_room", "no_sharp_items_in_child_zone"]),
+            _rec(system="A", category="misdirected", gold="Reject", predicted="Accept",
+                 related_rule_ids=["lock_door_when_owner_away"]),
+        ],
+    }
+    category_breakdown_ = build_unsafety_breakdown_report(records_by_system, rule_base, by="category")
+    rule_breakdown = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
+
+    category_path = tmp_path / "by_category.png"
+    rule_path = tmp_path / "by_rule.png"
+    plot_unsafety_type_breakdown(category_breakdown_, category_path)
+    plot_unsafety_type_breakdown(rule_breakdown, rule_path, title="Catch rate by individual rule, per system")
+
+    assert category_path.exists() and category_path.stat().st_size > 0
+    assert rule_path.exists() and rule_path.stat().st_size > 0

@@ -268,11 +268,13 @@ record can contribute to more than one bucket if it's tagged with rules
 spanning multiple categories (e.g. the knife-in-child-room examples trip
 `sharp`, `dangerous`, and `child_zone` at once).
 
-Two granularities are computed and saved: `by="category"` (six buckets,
-more examples each - the headline `unsafety_type_breakdown.png` grouped bar
-chart and the primary reporting table) and `by="rule"` (eight buckets, finer
-detail, saved to `unsafety_breakdown.csv`/`.json` alongside the category
-view for drilling in further). Pooled across all repeats, like the
+Two granularities are computed, saved, and plotted: `by="category"` (six
+buckets, more examples each - `unsafety_type_breakdown.png`, the headline
+grouped bar chart and primary reporting table) and `by="rule"` (eight
+buckets, finer detail - `unsafety_type_breakdown_by_rule.png`, plus both
+granularities in `unsafety_breakdown.csv`/`.json` for drilling in further,
+e.g. checking whether a low category-level catch rate is driven by one
+rule within it or spread evenly). Pooled across all repeats, like the
 confusion matrix - the point is comparing *which types* each system misses,
 not putting a confidence interval on it.
 

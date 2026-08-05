@@ -136,7 +136,8 @@ of unsafety - sharp/dangerous/private_item/child_zone/restricted/misdirected,
 and per individual rule - so failures can be pinpointed to a specific
 category rather than just an aggregate "unsafe" number), `plots/`
 (recall-vs-FRR tradeoff, latency breakdown, per-system confusion matrices,
-unsafety-type breakdown), and `config_used.json` for reproducibility.
+unsafety-type breakdown at both category and individual-rule granularity),
+and `config_used.json` for reproducibility.
 See [docs/methodology.md](docs/methodology.md#metrics-phase-6) for how the
 metrics are defined, [docs/methodology.md](docs/methodology.md#unsafety-type-breakdown-phase-7)
 for the unsafety-type breakdown, and the ablations' exact semantics.

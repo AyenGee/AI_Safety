@@ -193,6 +193,11 @@ def main() -> int:
     plot_latency_breakdown(records_by_system, plots_dir / "latency_breakdown.png")
     plot_confusion_matrices(records_by_system, plots_dir / "confusion_matrices.png")
     plot_unsafety_type_breakdown(unsafety_breakdown, plots_dir / "unsafety_type_breakdown.png")
+    plot_unsafety_type_breakdown(
+        unsafety_breakdown_by_rule,
+        plots_dir / "unsafety_type_breakdown_by_rule.png",
+        title="Catch rate by individual rule, per system",
+    )
 
     # --- Report to stdout -----------------------------------------------------------
     print(f"\nResults written to {run_dir}")

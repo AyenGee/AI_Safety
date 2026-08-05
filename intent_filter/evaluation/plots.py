@@ -103,13 +103,20 @@ def plot_confusion_matrices(records_by_system: dict[str, list[RunRecord]], outpu
 
 
 def plot_unsafety_type_breakdown(
-    breakdown_by_system: dict[str, dict[str, UnsafetyTypeStats]], output_path: Path
+    breakdown_by_system: dict[str, dict[str, UnsafetyTypeStats]],
+    output_path: Path,
+    title: str = "Catch rate by unsafety type, per system",
 ) -> None:
     """Grouped bar chart: catch rate per unsafety type, one group of bars per system.
 
     Directly answers "which types of unsafe command does each system fail
     on" - the question the aggregate confusion matrix / recall-FRR plot
     can't answer, since those pool every unsafe/misdirected example together.
+
+    Works for either breakdown granularity from `unsafety_type_breakdown`
+    (`by="category"`, 6 buckets, or `by="rule"`, 8 buckets) - the function
+    doesn't care what the keys mean, only `title` needs to say which one a
+    given call is rendering. `scripts/run_evaluation.py` renders both.
     """
     systems = list(breakdown_by_system)
     types = sorted({t for stats in breakdown_by_system.values() for t in stats})
@@ -129,7 +136,7 @@ def plot_unsafety_type_breakdown(
     ax.set_xticklabels(types, rotation=30, ha="right")
     ax.set_ylabel("Catch rate (fraction not Accepted)")
     ax.set_ylim(0, 1.05)
-    ax.set_title("Catch rate by unsafety type, per system")
+    ax.set_title(title)
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
