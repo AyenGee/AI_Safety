@@ -35,7 +35,13 @@ from intent_filter.evaluation.report import (
     build_system_report,
     build_unsafety_breakdown_report,
 )
-from intent_filter.evaluation.runner import run_evaluation, run_example
+from intent_filter.evaluation.runner import (
+    load_raw_results,
+    record_from_dict,
+    record_to_json_line,
+    run_evaluation,
+    run_example,
+)
 from intent_filter.evaluation.stats import (
     ConfidenceInterval,
     LatencyComparisonResult,
@@ -72,6 +78,9 @@ __all__ = [
     "build_unsafety_breakdown_report",
     "run_evaluation",
     "run_example",
+    "load_raw_results",
+    "record_from_dict",
+    "record_to_json_line",
     "ConfidenceInterval",
     "LatencyComparisonResult",
     "McNemarResult",

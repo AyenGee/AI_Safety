@@ -14,6 +14,16 @@ Usage:
     # Only the two baselines, skip ablations:
     python scripts/run_evaluation.py --systems single_llm,multi_agent --no-ablations
 
+    # Resume a run interrupted by a crash, closed laptop, or lost network
+    # connection - re-run the exact same command, adding --resume with the
+    # run directory that was printed at the start of the interrupted run.
+    # Already-completed (system, example, repeat) combos are skipped.
+    python scripts/run_evaluation.py --resume results/20260904_120000
+
+Every individual run is written to raw_results.jsonl the moment it completes
+(not batched up for the end), so an interrupted run never loses more than the
+one call that was in flight - see --resume above to continue it.
+
 Results are written to results/<timestamp>/: raw_results.jsonl (every run),
 metrics_summary.json/.csv (per-system metrics with CIs), statistical_tests.json
 (McNemar + latency comparison), plots/*.png, and config_used.json.
@@ -41,10 +51,12 @@ from intent_filter.evaluation import (  # noqa: E402
     build_pairwise_mcnemar,
     build_system_report,
     build_unsafety_breakdown_report,
+    load_raw_results,
     plot_confusion_matrices,
     plot_latency_breakdown,
     plot_recall_frr_tradeoff,
     plot_unsafety_type_breakdown,
+    record_to_json_line,
     run_evaluation,
 )
 from intent_filter.systems import ABLATIONS, SYSTEMS  # noqa: E402
@@ -58,6 +70,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--systems", default=None, help="Comma-separated subset of: " + ", ".join(SYSTEMS) + ". Default: all four.")
     parser.add_argument("--no-ablations", action="store_true", help="Skip the Multi-Agent+LTL ablation runs.")
     parser.add_argument("--output-dir", default=None, help="Override config.evaluation.results_dir.")
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Path to an existing results/<timestamp> directory to resume an interrupted run. "
+        "Re-run with the same other flags (--limit/--repeats/--systems/--no-ablations) you used "
+        "originally; already-completed runs found in its raw_results.jsonl are skipped.",
+    )
     return parser
 
 
@@ -99,11 +118,59 @@ def main() -> int:
 
     repeats = args.repeats or config.evaluation.repeats
 
-    print(f"Evaluating {len(systems_to_run)} system(s) over {len(examples)} example(s), "
-          f"{repeats} repeat(s) each ({len(systems_to_run) * len(examples) * repeats} total runs).")
-    print(f"Systems: {', '.join(systems_to_run)}")
+    # --- Resolve run directory + resume state ---------------------------------
+    if args.resume:
+        run_dir = Path(args.resume)
+        if not run_dir.exists():
+            print(f"--resume directory not found: {run_dir}", file=sys.stderr)
+            return 1
+        raw_results_path = run_dir / "raw_results.jsonl"
+        existing_records = load_raw_results(raw_results_path)
+        skip = {(r.system, r.example_id, r.repeat_index) for r in existing_records}
+        print(f"Resuming {run_dir}: {len(skip)} run(s) already completed, will be skipped.")
+    else:
+        results_root = Path(args.output_dir or config.evaluation.results_dir)
+        run_dir = results_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+        raw_results_path = run_dir / "raw_results.jsonl"
+        existing_records = []
+        skip = set()
 
-    records = run_evaluation(systems_to_run, examples, ctx, repeats, progress_callback=_print_progress)
+    plots_dir = run_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    total_runs = len(systems_to_run) * len(examples) * repeats
+    print(f"Evaluating {len(systems_to_run)} system(s) over {len(examples)} example(s), "
+          f"{repeats} repeat(s) each ({total_runs} total runs"
+          + (f", {len(skip)} already done" if skip else "") + ").")
+    print(f"Systems: {', '.join(systems_to_run)}")
+    print(f"Run directory: {run_dir}"
+          + ("" if args.resume else " (pass --resume with this path to continue if interrupted)"))
+
+    # Each record is appended and flushed to raw_results.jsonl the moment
+    # it's produced, not batched up and written only after the whole run
+    # finishes - so a crash, lost network connection, or closed laptop loses
+    # at most the one call that was in flight, and the run can be continued
+    # with --resume instead of restarted from scratch.
+    with open(raw_results_path, "a" if args.resume else "w", encoding="utf-8") as raw_results_file:
+
+        def _persist_record(record) -> None:
+            raw_results_file.write(record_to_json_line(record) + "\n")
+            raw_results_file.flush()
+
+        new_records = run_evaluation(
+            systems_to_run,
+            examples,
+            ctx,
+            repeats,
+            progress_callback=_print_progress,
+            on_record=_persist_record,
+            skip=skip,
+        )
+
+    # raw_results.jsonl is the single source of truth for aggregation below,
+    # whether it was written in one uninterrupted process or stitched
+    # together across a crash and a --resume.
+    records = existing_records + new_records
 
     # --- Aggregate ---------------------------------------------------------------
     records_by_system: dict[str, list] = {}
@@ -120,14 +187,8 @@ def main() -> int:
     unsafety_breakdown_by_rule = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
 
     # --- Save ---------------------------------------------------------------------
-    results_root = Path(args.output_dir or config.evaluation.results_dir)
-    run_dir = results_root / datetime.now().strftime("%Y%m%d_%H%M%S")
-    plots_dir = run_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-
-    with open(run_dir / "raw_results.jsonl", "w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(dataclasses.asdict(r), default=str) + "\n")
+    # run_dir, plots_dir, and raw_results.jsonl were already created/written
+    # above (incrementally, during the run itself).
 
     with open(run_dir / "metrics_summary.json", "w", encoding="utf-8") as f:
         json.dump({s: dataclasses.asdict(r) for s, r in reports.items()}, f, indent=2, default=str)

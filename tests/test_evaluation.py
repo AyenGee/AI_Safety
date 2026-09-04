@@ -21,8 +21,11 @@ from intent_filter.evaluation import (
     compute_confusion_counts,
     compute_system_metrics,
     confusion_matrix,
+    load_raw_results,
     mcnemar_test,
     mean_confidence_interval,
+    record_from_dict,
+    record_to_json_line,
     run_evaluation,
     run_example,
 )
@@ -316,6 +319,60 @@ def test_run_evaluation_orchestrates_systems_examples_repeats(ontology, ctx_fact
     assert progress_calls[-1] == (4, 4)
     assert {r.repeat_index for r in records} == {0, 1}
     assert {r.example_id for r in records} == {"ex1", "ex2"}
+
+
+def test_run_evaluation_skips_completed_combos_and_calls_on_record(ontology, ctx_factory):
+    # Only ex2/repeat0 should actually be run - ex1/repeat0 is in `skip`.
+    responses = [
+        json.dumps({"decision": "accept", "rationale": "x", "description": "d", "actions": []})
+        for _ in range(10)
+    ]
+    client = ScriptedLLMClient(responses=responses)
+    ctx = ctx_factory(client)
+    examples = [_example(id_="ex1"), _example(id_="ex2")]
+    systems = {"single_llm": baseline_a.run}
+
+    persisted = []
+    records = run_evaluation(
+        systems,
+        examples,
+        ctx,
+        repeats=1,
+        on_record=persisted.append,
+        skip={("single_llm", "ex1", 0)},
+    )
+
+    assert len(records) == 1
+    assert records[0].example_id == "ex2"
+    assert persisted == list(records)
+    assert len(client.calls) == 1  # ex1 never hit the (scripted) client
+
+
+def test_record_json_round_trip_preserves_tuple_and_dict_fields():
+    record = _rec(related_rule_ids=("no_knife_in_child_room", "no_sharp_items_in_child_zone"), stages={"planner": 1.0})
+
+    restored = record_from_dict(json.loads(record_to_json_line(record)))
+
+    assert restored == record
+    assert isinstance(restored.related_rule_ids, tuple)
+    assert isinstance(restored.latency_by_stage, dict)
+
+
+def test_load_raw_results_reads_back_appended_records(tmp_path):
+    path = tmp_path / "raw_results.jsonl"
+    r1 = _rec(example_id="e1")
+    r2 = _rec(example_id="e2")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(record_to_json_line(r1) + "\n")
+        f.write(record_to_json_line(r2) + "\n")
+
+    loaded = load_raw_results(path)
+
+    assert loaded == [r1, r2]
+
+
+def test_load_raw_results_returns_empty_list_for_missing_file(tmp_path):
+    assert load_raw_results(tmp_path / "does_not_exist.jsonl") == []
 
 
 # --- report.py -----------------------------------------------------------------------------

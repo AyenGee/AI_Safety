@@ -342,10 +342,23 @@ Implementations live in `intent_filter/evaluation/stats.py` and
 `intent_filter/evaluation/report.py`; `scripts/run_evaluation.py` is the
 CLI driver. Verified both by unit tests (`tests/test_evaluation.py`, no
 network) and end-to-end against the live API on small curated subsets - the
-full 72-example x repeats x (4 systems + 3 ablations) evaluation run is
+full 200-example x repeats x (4 systems + 3 ablations) evaluation run is
 deferred to Phase 8, both to control cost/time during development and
 because the proposal's own phasing separates building the harness (Phase 6)
 from running the full evaluation (Phase 8).
+
+Because a full Phase 8 run is a multi-hour, sequential (no concurrency)
+batch of thousands of live API calls, `scripts/run_evaluation.py` writes
+every `RunRecord` to `raw_results.jsonl` immediately (flushed on write)
+rather than holding results in memory until the run finishes. A run
+interrupted by a network drop, a laptop sleeping, or a crash can be
+continued with `--resume <run_dir>`, which reloads that file, skips
+`(system, example, repeat)` combinations already completed, and only pays
+for/re-runs what's missing - see the "Run the evaluation harness" section
+in [../README.md](../README.md). Verified end-to-end: a run was interrupted
+partway (checkpoint file truncated to simulate a crash), resumed, and
+confirmed to skip the completed combinations and reproduce identical final
+metrics/plots to an uninterrupted run over the same data.
 
 ## Dataset design
 

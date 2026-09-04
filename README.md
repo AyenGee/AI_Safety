@@ -124,7 +124,19 @@ python scripts/run_evaluation.py
 
 # Only specific systems, skip ablations
 python scripts/run_evaluation.py --systems single_llm,multi_agent --no-ablations
+
+# Resume a run interrupted by a crash, lost network connection, or closed
+# laptop: re-run the same command, adding --resume with the run directory
+# printed at the start of the interrupted run. Already-completed runs
+# (found in its raw_results.jsonl) are skipped, not re-paid-for or re-run.
+python scripts/run_evaluation.py --resume results/20260904_120000
 ```
+
+Every run/example/repeat outcome is appended and flushed to
+`raw_results.jsonl` the moment it completes, rather than held in memory and
+written only at the end - so an interruption loses at most the one API call
+that was in flight, and `--resume` continues from there instead of
+restarting (and re-paying for) the whole run.
 
 Each run writes `results/<timestamp>/`: `raw_results.jsonl` (every
 system/example/repeat outcome with full stage traces), `metrics_summary.csv`/
