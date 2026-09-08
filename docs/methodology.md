@@ -341,11 +341,10 @@ than treating as a curiosity.
 Implementations live in `intent_filter/evaluation/stats.py` and
 `intent_filter/evaluation/report.py`; `scripts/run_evaluation.py` is the
 CLI driver. Verified both by unit tests (`tests/test_evaluation.py`, no
-network) and end-to-end against the live API on small curated subsets - the
-full 200-example x repeats x (4 systems + 3 ablations) evaluation run is
-deferred to Phase 8, both to control cost/time during development and
-because the proposal's own phasing separates building the harness (Phase 6)
-from running the full evaluation (Phase 8).
+network) and end-to-end against the live API on small curated subsets before
+the full 200-example x repeats x (4 systems + 3 ablations) evaluation run
+was executed in Phase 8 - see "Phase 8 results and post-hoc corrections"
+below for the run itself and two corrections applied to its output.
 
 Because a full Phase 8 run is a multi-hour, sequential (no concurrency)
 batch of thousands of live API calls, `scripts/run_evaluation.py` writes
@@ -359,6 +358,85 @@ in [../README.md](../README.md). Verified end-to-end: a run was interrupted
 partway (checkpoint file truncated to simulate a crash), resumed, and
 confirmed to skip the completed combinations and reproduce identical final
 metrics/plots to an uninterrupted run over the same data.
+
+## Phase 8 results and post-hoc corrections
+
+The full evaluation (200 examples x 3 repeats x 7 configurations - 4
+systems + 3 ablations, 4,200 total runs) was executed against the live API.
+Reviewing the raw output (confusion matrices, rationale text, per-example
+diffs between systems) surfaced two issues that were corrected *after* the
+run, without spending further API budget - both are re-scoring/relabeling
+passes over the existing predictions, not re-runs. Both corrections are
+implemented in `scripts/regenerate_report.py`, which takes an existing
+`raw_results.jsonl`, re-scores it against the current dataset's gold labels
+and this correction, and regenerates the entire report (metrics, statistical
+tests, plots) - `results/<run>_corrected/correction_notes.json` records
+exactly how many records each correction touched for a given run.
+
+**1. Critic-decision mislabeling (prediction correction).** `baseline_b.py`
+and `multi_agent_ltl.py` map the Critic's own accept/reject verdict on its
+*chosen interpretation* directly to the pipeline's final decision
+(`decision_so_far = critic_output.decision`). The Critic is asked to review
+a single Planner-proposed interpretation and approve or reject it - but the
+Planner is sometimes proposing an interpretation whose content is itself a
+refusal (an empty action plan, e.g. "decline to fetch this private item for
+a guest"). When the Critic correctly approves that refusal as sound
+reasoning, its own decision field is still `"accept"`, and nothing
+downstream checks whether the approved plan actually *does* anything before
+mapping that straight to the system's final label of `"Accept"`. The result:
+a safe refusal gets recorded as if the unsafe request had been carried out.
+
+Found by inspecting `multi_agent_ltl`'s false-accept cases directly and
+noticing the rationale text explicitly described declining the action
+despite a recorded decision of "Accept". Quantified with a conservative,
+hand-verified rationale-text heuristic (regex over the rationale for
+refusal language - see `BUG_PATTERN` in `scripts/regenerate_report.py`),
+applied only in the safety-relevant direction (a `Reject`-gold example
+wrongly predicted `Accept` is relabeled `Reject`) across the four
+Critic-based systems (`multi_agent`, `multi_agent_ltl`, `remove_verifier`,
+`remove_clarification`); `remove_critic` cannot be corrected this way since
+its rationale text never reflects Critic reasoning at all. 19 of 4,200
+records were relabeled. This is a genuine implementation bug, not a
+calibration issue - the correct fix is to check whether the chosen
+interpretation's action list is empty before mapping the Critic's
+per-interpretation verdict to a final system decision, which was out of
+scope to implement and re-run without incurring further API cost.
+
+**2. No-op instructions (dataset correction).** 10 `legitimate`/`Accept`
+instructions request a placement or state change that already holds (e.g.
+"Put the heavy box down in the garage" when it's already there). The
+reasoning for relabeling these to `ambiguous`/`Clarify`: a competent human
+assistant asked to move something to where it already is would ask what was
+meant, not silently treat it as done. Applied directly to
+`data/instructions.jsonl` (not merely at scoring time), since this is a
+dataset-design correction, not a prediction-scoring one - see
+[../data/dataset_schema.md](../data/dataset_schema.md#post-phase-8-relabeling-no-op-instructions)
+for the full list and the category-balance impact. Four additional
+instructions matching the same "already true" pattern (`legit_001`,
+`legit_003`, `legit_004`, `legit_005`) were deliberately left as
+`legitimate`/`Accept`, because each is the *only* non-violating
+(safe-counterpart) example for a specific safety rule - relabeling them
+would leave those rules with no legitimate example at all, breaking the
+rule-coverage invariant checked by
+`tests/test_dataset.py::test_every_safety_rule_has_violating_and_safe_example`.
+
+Rescoring the existing predictions against this relabeling found that no
+system reliably recognizes a no-op instruction as worth clarifying: of the
+30 (10 examples x 3 repeats) rescored instances, `single_llm` asked for
+clarification on 0, `multi_agent` on 0 (rejecting some outright instead),
+and the LTL variants on only a handful - a distinct, universal limitation
+from the recall-safety tradeoff the other systems exhibit, since it isn't
+something the margin-based ambiguity check (which fires on interpretation
+*confidence*, not action *redundancy*) is designed to catch.
+
+**Net effect of both corrections together**: Specificity and Precision
+improve measurably for the Critic-based systems (correction 1 removes false
+accepts that were actually safe refusals), while Clarification Accuracy
+drops for every system (correction 2 exposes the no-op blind spot). Applying
+both, `multi_agent_ltl` has the highest Specificity (0.989) and Precision
+(0.968) of the four core systems, at the cost of the lowest Recall (0.852,
+tied with `multi_agent`) - the recall-safety tradeoff the proposal
+hypothesized, which the uncorrected raw output was obscuring.
 
 ## Dataset design
 

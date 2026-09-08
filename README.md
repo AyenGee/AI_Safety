@@ -154,6 +154,21 @@ See [docs/methodology.md](docs/methodology.md#metrics-phase-6) for how the
 metrics are defined, [docs/methodology.md](docs/methodology.md#unsafety-type-breakdown-phase-7)
 for the unsafety-type breakdown, and the ablations' exact semantics.
 
+To re-score an existing run's predictions against an updated dataset (e.g.
+after fixing a gold label) or a corrected prediction-labeling rule, without
+re-running any LLM calls:
+
+```bash
+python scripts/regenerate_report.py --input results/20260908_085406 --output results/20260908_085406_corrected
+```
+
+This reloads `raw_results.jsonl`, re-scores each record against the
+*current* dataset's category/gold_label by `example_id`, applies the
+Critic-decision mislabeling correction (see
+[docs/methodology.md](docs/methodology.md#phase-8-results-and-post-hoc-corrections)),
+and regenerates the full report (metrics/stats/plots) into `--output`,
+leaving the original run untouched for audit.
+
 Run tests (no live LLM calls; agents are mocked):
 
 ```bash
@@ -172,9 +187,11 @@ categories with gold Accept/Reject/Clarify labels:
   constraint -> `Reject`.
 
 Schema and regeneration instructions: [data/dataset_schema.md](data/dataset_schema.md).
-The dataset has 200 hand-authored examples (50 legitimate, 57 unsafe, 33
-misdirected, 60 ambiguous - see the schema doc for why the split isn't even
-50/50/50/50); every one of the 8 safety rules in `config/safety_rules.yaml`
+The dataset has 200 hand-authored examples (40 legitimate, 57 unsafe, 33
+misdirected, 70 ambiguous - see the schema doc for why the split isn't even
+50/50/50/50, and for the post-Phase-8 relabeling of 10 no-op instructions
+that shifted this split from its original 50/57/33/60); every one of the 8
+safety rules in `config/safety_rules.yaml`
 has at least one violating and one non-violating example, cross-checked by
 `tests/test_dataset.py`. Scaled from the Phase 3 seed set (72 examples) to
 300 in Phase 7, then trimmed to 200 after supervisor feedback on API cost
@@ -239,7 +256,8 @@ alongside the four systems by default - see
       Multi-Agent+LTL ablations, and plots - verified by unit tests and
       against the live API on small curated subsets.
 - [x] **Phase 7** - Scaled dataset from 72 to 300 hand-authored examples,
-      then trimmed to 200 (50/57/33/60 split) after supervisor feedback on
+      then trimmed to 200 (50/57/33/60 split, later adjusted to 40/57/33/70
+      - see Phase 8 below) after supervisor feedback on
       Phase 8 API cost - see [data/dataset_schema.md](data/dataset_schema.md#dataset-size-and-category-balance-phase-7)
       for the balance rationale; fixed two ungroundable-object rows found
       via the Phase 6 interim evaluation; added a per-unsafety-type
@@ -249,7 +267,16 @@ alongside the four systems by default - see
       all 60 ambiguous items varied scenes, in response to an external
       dataset review - see [data/dataset_schema.md](data/dataset_schema.md#dataset-enhancement-pass-phase-7-post-external-review)
       for what was fixed and what was deliberately not adopted.
-- [ ] **Phase 8** - Full evaluation run + methodology write-up sync.
+- [x] **Phase 8** - Full evaluation run (200 examples x 3 repeats x 7
+      configurations, 4,200 total runs) executed against the live API, with
+      checkpoint/resume used mid-run. Reviewing the raw output surfaced two
+      issues, corrected post-hoc without further API spend via
+      `scripts/regenerate_report.py`: a Critic-decision mislabeling bug
+      (some safe refusals were recorded as "Accept") and 10 no-op
+      instructions relabeled from `legitimate`/Accept to `ambiguous`/Clarify
+      in the dataset - see
+      [docs/methodology.md](docs/methodology.md#phase-8-results-and-post-hoc-corrections)
+      for both corrections and their combined effect on the results.
 
 ## Citation / academic context
 
