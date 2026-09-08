@@ -150,13 +150,27 @@ def load_raw_results(path: Path) -> list[RunRecord]:
     source of truth for aggregation - whether the file was written in one
     uninterrupted process or stitched together across a crash and a
     `--resume`. Returns an empty list if the file doesn't exist yet.
+
+    A hard power-cut (e.g. force-rebooting a frozen machine) can catch a
+    write to this file mid-flight, leaving one trailing line truncated
+    before the OS finished committing it to disk. Rather than let that one
+    unparseable line crash the whole resume, it's skipped (with a warning) -
+    the run it belonged to never gets marked complete, so it's simply
+    re-run, exactly as if it had never started.
     """
     if not path.exists():
         return []
     records = []
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for line_number, line in enumerate(f, start=1):
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 records.append(record_from_dict(json.loads(line)))
+            except json.JSONDecodeError:
+                print(
+                    f"Warning: skipping unreadable line {line_number} in {path} "
+                    "(likely a partial write left by an interrupted run) - it will be re-run."
+                )
     return records

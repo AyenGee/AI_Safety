@@ -375,6 +375,21 @@ def test_load_raw_results_returns_empty_list_for_missing_file(tmp_path):
     assert load_raw_results(tmp_path / "does_not_exist.jsonl") == []
 
 
+def test_load_raw_results_skips_truncated_trailing_line(tmp_path, capsys):
+    # Simulates a hard power-cut catching the last write mid-flight: the
+    # final line is a truncated JSON fragment, not valid JSON at all.
+    path = tmp_path / "raw_results.jsonl"
+    good = _rec(example_id="e1")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(record_to_json_line(good) + "\n")
+        f.write('{"system": "s", "example_id": "e2", "repeat_index": 0, "cat')  # truncated, no newline
+
+    loaded = load_raw_results(path)
+
+    assert loaded == [good]
+    assert "skipping unreadable line" in capsys.readouterr().out
+
+
 # --- report.py -----------------------------------------------------------------------------
 
 

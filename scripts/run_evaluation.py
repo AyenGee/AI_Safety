@@ -35,6 +35,7 @@ import argparse
 import csv
 import dataclasses
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -146,16 +147,20 @@ def main() -> int:
     print(f"Run directory: {run_dir}"
           + ("" if args.resume else " (pass --resume with this path to continue if interrupted)"))
 
-    # Each record is appended and flushed to raw_results.jsonl the moment
-    # it's produced, not batched up and written only after the whole run
-    # finishes - so a crash, lost network connection, or closed laptop loses
-    # at most the one call that was in flight, and the run can be continued
-    # with --resume instead of restarted from scratch.
+    # Each record is appended, flushed, and fsync'd to raw_results.jsonl the
+    # moment it's produced, not batched up and written only after the whole
+    # run finishes. flush() alone only pushes data out of Python's buffer -
+    # the OS can still hold it before physically committing it to disk, which
+    # a hard power-cut (e.g. force-rebooting a frozen machine) can lose;
+    # fsync() forces that commit. Net effect: an interruption loses at most
+    # the one call that was in flight, and the run can be continued with
+    # --resume instead of restarted (and re-paid-for) from scratch.
     with open(raw_results_path, "a" if args.resume else "w", encoding="utf-8") as raw_results_file:
 
         def _persist_record(record) -> None:
             raw_results_file.write(record_to_json_line(record) + "\n")
             raw_results_file.flush()
+            os.fsync(raw_results_file.fileno())
 
         new_records = run_evaluation(
             systems_to_run,
