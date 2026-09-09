@@ -502,6 +502,26 @@ properties programmatically and injecting them as a fact the Critic cannot
 contradict, rather than asking it to self-report a lookup) is a candidate
 for future work.
 
+**What this implies for the case for LTL verification.** Section "Statistical
+testing" above found that adding LTL barely moved aggregate accuracy in
+either architecture - not statistically significant against either baseline
+- because the LLMs' own judgment usually already agreed with what the rules
+would say on this dataset. Taken alone, that reads as "LTL added little
+value." This experiment supplies the reason that framing is incomplete: an
+LLM's agreement with a rule can't be fully trusted even when it's given the
+correct facts, because it will rationalize around an explicit, correct fact
+check - inventing an unstated rule (`legit_007`) or fabricating the fact
+itself (`legit_059`) - to preserve a prior conclusion. The LTL verifier
+cannot do either of those things for whatever it's actually checking: it
+isn't persuadable and isn't reasoning under a contextual bias, it only
+evaluates a fixed formula against a trajectory. So the argument for LTL
+verification in this architecture isn't "it changed more decisions in
+Phase 8" - the data says it mostly didn't - it's that **it removes an entire
+category of failure (a plausible-sounding but false rationalization)
+outright, for every property it is able to formalize**, independent of
+whether that category happened to be exercised often in this particular
+200-example dataset.
+
 ## Dataset design
 
 See [../data/dataset_schema.md](../data/dataset_schema.md) for the
