@@ -547,23 +547,36 @@ is attributable entirely to LLM response non-determinism across two
 separately-sampled calls to an identical prompt, not to any code
 difference - there isn't one to attribute it to.
 
-**2. In the full system, the verifier was reached rarely, and never
-disagreed when it was.** `multi_agent_ltl.run()` short-circuits to the
-Critic's own "reject"/"clarify" before ever calling the verifier
+**2. In the full system, the verifier was reached rarely, and its rule-base
+check never disagreed when it ran.** `multi_agent_ltl.run()` short-circuits
+to the Critic's own "reject"/"clarify" before ever calling the verifier
 (`if use_critic and decision_so_far in ("reject", "clarify"): return ...`).
-Across all 600 Phase 8 runs, only 148 (24.7%) reached the verifier at all;
-the rest were already decided by the Critic. Of those 148, **`SAT` was
-returned on the first attempt every time** - `refinement_attempts == 0` for
-all 600 `multi_agent_ltl` records, meaning the bounded reprompting loop
-(the mechanism that exists specifically for the verifier to override an
-accepted plan) was never triggered even once. Whenever the Critic said
-"accept," the verifier agreed with it, unanimously, for this dataset.
+Across all 600 Phase 8 runs, only 148 (24.7%) reached the verify stage at
+all; the rest were already decided by the Critic. Of those 148, 2
+(`legit_009`, both repeats) hit `build_trajectory` returning `None` -
+"Rejected: the proposed action sequence violates an environment
+precondition" - a plan-*validity* check that runs *before* the rule base is
+ever consulted, not a safety-rule disagreement. The remaining 146 actually
+reached `check_rule_base`, and **all 146 returned SAT** -
+`refinement_attempts == 0` for every one of the 600 `multi_agent_ltl`
+records confirms the rule-checking loop never once needed to retry, meaning
+none of those 146 checks ever found a violation. So precisely: the
+mechanism that evaluates the 8 LTL formulas was invoked 146 times in the
+live run and agreed with the Critic's "accept" 146/146 times - it never
+once disagreed about a safety rule. (6 of those 146 "Accept" outcomes are
+recorded as "Reject" in the corrected dataset used elsewhere in this
+document - that is this section's own correction #1 relabeling a
+mislabeled Critic refusal after the fact; it reflects nothing the live
+verifier itself flagged, confirmed by checking the original run directly.)
 
 **Conclusion**: this is a sharper and more falsifiable claim than "LTL's
 effect wasn't statistically significant" - in the one place Phase 8 lets it
-be measured in isolation (the 148 `multi_agent_ltl` runs that actually
-reached verification), **the verifier changed zero final decisions**. This
-doesn't contradict the case for LTL verification made in the grounding
+be measured in isolation (the 146 `multi_agent_ltl` runs that actually
+reached the rule-base check), **the verifier's safety-rule evaluation
+changed zero final decisions** (the only 2 non-Accept outcomes among the
+148 that reached the verify stage came from an unrelated plan-validity
+check, not a rule disagreement). This doesn't contradict the case for LTL
+verification made in the grounding
 experiment above (a verifier that never gets to disagree still guarantees
 that *if* it ever did, that disagreement couldn't be rationalized away) -
 but it means the case for LTL in this report has to rest on that structural
