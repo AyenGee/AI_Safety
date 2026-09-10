@@ -522,6 +522,57 @@ outright, for every property it is able to formalize**, independent of
 whether that category happened to be exercised often in this particular
 200-example dataset.
 
+## The verifier's measured effect on Phase 8 was zero decisions changed
+
+The non-significant McNemar's result for LTL (above) understates how little
+the verifier actually did, once traced precisely rather than inferred from
+p-values. Two independent lines of evidence, both from the Phase 8 data:
+
+**1. `remove_verifier` is structurally identical to `multi_agent`.**
+`ABLATIONS["remove_verifier"] = functools.partial(multi_agent_ltl.run,
+use_verifier=False)` leaves `use_critic`/`use_clarification` at their
+defaults, and tracing `multi_agent_ltl.run()`: with `use_verifier=False` it
+calls `plan()` then `critic.review()` with the same arguments
+`baseline_b.py` (`multi_agent`) uses, then returns immediately - *before*
+`translate()` is ever called (confirmed by the latency-breakdown plot
+showing no translator segment for `remove_verifier`). The two systems send
+the same prompts through the same code path; nothing about "removing the
+verifier" changes what the Planner or Critic are asked. Yet on the exact
+same (example_id, repeat_index) pairs, **79 of 600 (13.2%) got a different
+predicted label** between the two systems (`multi_agent`: Recall 0.867 /
+Specificity 0.981 / F1 0.908; `remove_verifier`: 0.875 / 0.974 / 0.905 -
+close, but not identical). Since Phase 8 runs each system as an independent
+set of live API calls with nothing cached or shared between them, this gap
+is attributable entirely to LLM response non-determinism across two
+separately-sampled calls to an identical prompt, not to any code
+difference - there isn't one to attribute it to.
+
+**2. In the full system, the verifier was reached rarely, and never
+disagreed when it was.** `multi_agent_ltl.run()` short-circuits to the
+Critic's own "reject"/"clarify" before ever calling the verifier
+(`if use_critic and decision_so_far in ("reject", "clarify"): return ...`).
+Across all 600 Phase 8 runs, only 148 (24.7%) reached the verifier at all;
+the rest were already decided by the Critic. Of those 148, **`SAT` was
+returned on the first attempt every time** - `refinement_attempts == 0` for
+all 600 `multi_agent_ltl` records, meaning the bounded reprompting loop
+(the mechanism that exists specifically for the verifier to override an
+accepted plan) was never triggered even once. Whenever the Critic said
+"accept," the verifier agreed with it, unanimously, for this dataset.
+
+**Conclusion**: this is a sharper and more falsifiable claim than "LTL's
+effect wasn't statistically significant" - in the one place Phase 8 lets it
+be measured in isolation (the 148 `multi_agent_ltl` runs that actually
+reached verification), **the verifier changed zero final decisions**. This
+doesn't contradict the case for LTL verification made in the grounding
+experiment above (a verifier that never gets to disagree still guarantees
+that *if* it ever did, that disagreement couldn't be rationalized away) -
+but it means the case for LTL in this report has to rest on that structural
+guarantee, not on a measured decision-changing effect this dataset never
+actually exercised. Contrast with `remove_critic`, which *does* remove a
+real code path (the entire Critic call) and shows a large, non-noise effect
+(Specificity 0.981 -> 0.137) - that's what an ablation with genuine causal
+effect looks like, and `remove_verifier` is not one.
+
 ## Dataset design
 
 See [../data/dataset_schema.md](../data/dataset_schema.md) for the
