@@ -38,6 +38,7 @@ from intent_filter.decision import (
     StageLog,
     SystemContext,
     build_trajectory,
+    guard_against_actionless_accept,
     summarize_violations,
 )
 from intent_filter.environment.state import WorldState
@@ -115,6 +116,10 @@ def run(
         decision_so_far = "accept"
         rationale_so_far = "Critic ablated: proceeding directly to formal verification with no semantic review."
 
+    decision_so_far, rationale_so_far = guard_against_actionless_accept(
+        decision_so_far, rationale_so_far, current_actions
+    )
+
     if not use_verifier:
         return PipelineResult(
             decision=_DECISION_MAP.get(decision_so_far, "Reject"),
@@ -148,7 +153,11 @@ def run(
         )
     )
 
-    if use_critic and decision_so_far in ("reject", "clarify"):
+    # Not gated on use_critic: guard_against_actionless_accept() above can
+    # now produce "clarify" even with the Critic ablated (an empty-action
+    # top interpretation from the Planner alone), and there is nothing
+    # meaningful left to verify against an empty action list either way.
+    if decision_so_far in ("reject", "clarify"):
         return PipelineResult(
             decision=_DECISION_MAP[decision_so_far],
             rationale=rationale_so_far,

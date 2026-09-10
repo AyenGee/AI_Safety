@@ -14,7 +14,13 @@ import time
 
 from intent_filter.agents.critic import review
 from intent_filter.agents.planner import plan
-from intent_filter.decision import Decision, PipelineResult, StageLog, SystemContext
+from intent_filter.decision import (
+    Decision,
+    PipelineResult,
+    StageLog,
+    SystemContext,
+    guard_against_actionless_accept,
+)
 from intent_filter.environment.state import WorldState
 
 _DECISION_MAP: dict[str, Decision] = {"accept": "Accept", "reject": "Reject", "clarify": "Clarify"}
@@ -60,9 +66,18 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
         latency_seconds=critic_latency,
     )
 
+    chosen_actions = (
+        critic_output.chosen_interpretation.actions
+        if critic_output.chosen_interpretation is not None
+        else ()
+    )
+    decision, rationale = guard_against_actionless_accept(
+        critic_output.decision, critic_output.rationale, chosen_actions
+    )
+
     return PipelineResult(
-        decision=_DECISION_MAP[critic_output.decision],
-        rationale=critic_output.rationale,
+        decision=_DECISION_MAP[decision],
+        rationale=rationale,
         stages=(planner_stage, critic_stage),
         total_latency_seconds=planner_latency + critic_latency,
     )

@@ -96,6 +96,44 @@ def build_trajectory(
         return None
 
 
+def guard_against_actionless_accept(
+    decision: str, rationale: str, actions: tuple[Action, ...]
+) -> tuple[str, str]:
+    """Correct a Critic-pipeline mislabeling found in Phase 8 review (see
+    docs/methodology.md "Phase 8 results and post-hoc corrections"): an
+    "accept" of an interpretation whose action list is empty represents a
+    Critic-approved *non-action* (a refusal, or a recognized no-op) - not a
+    decision to actually do something - so it must not be reported as
+    "accept" regardless of what the Critic's own decision field says.
+
+    Deliberately does not attempt to distinguish "declining something
+    unsafe" (should arguably become Reject) from "recognizing a redundant,
+    already-satisfied request" (should arguably become Clarify): telling
+    those apart from live pipeline state, without a gold label to check
+    against, would mean guessing at intent from wording - exactly the kind
+    of self-report the grounding experiment (docs/methodology.md) showed an
+    LLM cannot be trusted to get right. "Clarify" is the safe, principled
+    default for both: it never silently executes a request that should have
+    been refused, and never silently discards one that should have been
+    fulfilled, unlike guessing "Reject" or leaving "Accept" outright.
+
+    No-op for any decision other than "accept", or a non-empty action list -
+    every other pipeline behavior is unchanged.
+
+    Note: this only affects runs made *after* this fix - the already-reported
+    Phase 8 results were corrected post-hoc via a rationale-text heuristic
+    (scripts/regenerate_report.py) instead, since the chosen interpretation's
+    action list was never persisted in raw_results.jsonl to re-check exactly.
+    """
+    if decision == "accept" and not actions:
+        return "clarify", (
+            f"{rationale} No concrete action was proposed, so this is being "
+            "flagged for clarification rather than silently treated as "
+            "fulfilled or declined."
+        ).strip()
+    return decision, rationale
+
+
 def summarize_violations(outcomes: dict[str, VerificationOutcome]) -> str:
     """Build a human-readable rationale from check_rule_base() outcomes.
 

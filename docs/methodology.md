@@ -399,8 +399,32 @@ its rationale text never reflects Critic reasoning at all. 19 of 4,200
 records were relabeled. This is a genuine implementation bug, not a
 calibration issue - the correct fix is to check whether the chosen
 interpretation's action list is empty before mapping the Critic's
-per-interpretation verdict to a final system decision, which was out of
-scope to implement and re-run without incurring further API cost.
+per-interpretation verdict to a final system decision.
+
+**This has since been fixed directly in the pipeline**
+(`intent_filter/decision.py::guard_against_actionless_accept`, wired into
+`baseline_b.py` and `multi_agent_ltl.py` - covers the `use_critic=False`
+ablation too, since an empty-action top interpretation from the Planner
+alone hits the same issue). Unlike the post-hoc rationale-text heuristic
+above, the code fix cannot use a gold label to decide the "right" corrected
+answer - a live pipeline has no access to one - so it can't reproduce
+`Reject` specifically for cases that were actually a refusal of something
+unsafe. Distinguishing "declining something unsafe" from "recognizing an
+already-satisfied, redundant request" from pipeline state alone would mean
+guessing at intent from wording, exactly the kind of self-report the
+grounding experiment showed an LLM cannot be trusted to get right. The fix
+therefore maps every actionless "accept" to **`Clarify`** uniformly: it
+never silently executes a request that should have been refused, and never
+silently discards one that should have been fulfilled, regardless of which
+of the two cases actually applies. Covered by 3 new regression tests
+(`tests/test_systems.py`) using `ScriptedLLMClient`, no live API calls.
+
+**This fix does not retroactively change the Phase 8 numbers reported
+above.** `RunRecord`/`raw_results.jsonl` never persisted the chosen
+interpretation's action list, only the final decision and rationale text -
+there is nothing to re-check this exact condition against for already-
+collected data, which is why the post-hoc correction used a text heuristic
+instead. The code fix only affects runs made after it was added.
 
 **2. No-op instructions (dataset correction).** 10 `legitimate`/`Accept`
 instructions request a placement or state change that already holds (e.g.

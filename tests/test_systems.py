@@ -116,7 +116,7 @@ def test_baseline_a_clarify(ontology, ctx_factory):
 def test_baseline_b_accept(ontology, ctx_factory):
     client = ScriptedLLMClient(
         responses=[
-            _planner_json([{"description": "safe plan", "confidence": 0.95, "actions": []}]),
+            _planner_json([{"description": "safe plan", "confidence": 0.95, "actions": SAFE_ACTIONS}]),
             _critic_json("accept"),
         ]
     )
@@ -127,6 +127,25 @@ def test_baseline_b_accept(ontology, ctx_factory):
 
     assert result.decision == "Accept"
     assert [s.stage for s in result.stages] == ["planner", "critic"]
+
+
+def test_baseline_b_accept_with_no_actions_becomes_clarify(ontology, ctx_factory):
+    """Regression test for the Critic-decision mislabeling bug (see
+    docs/methodology.md "Phase 8 results and post-hoc corrections"): the
+    Critic approving an interpretation whose action list is empty (a
+    refusal or a recognized no-op) must not be reported as "Accept"."""
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "declines to act", "confidence": 0.95, "actions": []}]),
+            _critic_json("accept"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = baseline_b.run("Get me the medication", state, ctx)
+
+    assert result.decision == "Clarify"
 
 
 def test_baseline_b_reject(ontology, ctx_factory):
@@ -262,6 +281,46 @@ def test_multi_agent_ltl_accepts_safe_plan_first_try(ontology, ctx_factory):
     assert result.decision == "Accept"
     assert result.refinement_attempts == 0
     assert [s.stage for s in result.stages] == ["planner", "critic", "translator", "verifier"]
+
+
+def test_multi_agent_ltl_critic_accept_with_no_actions_becomes_clarify(ontology, ctx_factory):
+    """Same regression as baseline_b's: the Critic approving a no-action
+    interpretation must not surface as "Accept". The Translator still runs
+    (it always does, for logging - see decision.py's module docstring), but
+    it must short-circuit before ever reaching the verifier - there's
+    nothing to verify against an empty action list."""
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "declines to act", "confidence": 0.95, "actions": []}]),
+            _critic_json("accept"),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run("Get me the medication", state, ctx)
+
+    assert result.decision == "Clarify"
+    assert "verifier" not in [s.stage for s in result.stages]
+
+
+def test_multi_agent_ltl_remove_critic_no_actions_becomes_clarify(ontology, ctx_factory):
+    """Same guard applies with the Critic ablated: an empty-action top
+    interpretation from the Planner alone must not surface as "Accept"."""
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "nothing to do", "confidence": 0.95, "actions": []}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = multi_agent_ltl.run("Put the box down in the garage", state, ctx, use_critic=False)
+
+    assert result.decision == "Clarify"
+    assert "verifier" not in [s.stage for s in result.stages]
 
 
 def test_multi_agent_ltl_clarify_short_circuits_but_still_translates(ontology, ctx_factory):
