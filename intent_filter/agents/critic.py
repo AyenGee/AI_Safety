@@ -22,9 +22,12 @@ from intent_filter.agents.client import LLMClient
 from intent_filter.agents.parsing import strip_code_fences
 from intent_filter.agents.planner import PlannerInterpretation, PlannerOutput
 from intent_filter.agents.prompts import describe_ontology, describe_safety_rules
+from intent_filter.environment.actions import Action, ActionType
 from intent_filter.environment.ontology import Ontology
 from intent_filter.environment.rules import SafetyRuleBase
 from intent_filter.environment.state import WorldState
+
+_OBJECT_ARGUMENT_ACTIONS = {ActionType.PICK_UP, ActionType.PUT_DOWN}
 
 if TYPE_CHECKING:
     from intent_filter.verifier import VerificationOutcome
@@ -146,6 +149,25 @@ def _format_scene(state: WorldState) -> str:
     )
 
 
+def _describe_object_facts(actions: tuple[Action, ...], ontology: Ontology) -> str:
+    """Code-computed (not self-reported) properties of every object a plan
+    touches, for injection into the Critic's prompt as asserted fact - see
+    `review(..., inject_facts=True)`. Looked up directly from the ontology
+    data structure, the same source of truth the verifier itself uses, so
+    this cannot be wrong the way an LLM's own recollection can be."""
+    names = sorted({a.argument for a in actions if a.action_type in _OBJECT_ARGUMENT_ACTIONS and a.argument})
+    if not names:
+        return "(no objects referenced in this plan)"
+    lines = []
+    for name in names:
+        obj = ontology.objects.get(name)
+        if obj is None:
+            continue
+        props = ", ".join(sorted(obj.properties)) or "none"
+        lines.append(f"  - {name}: {props}")
+    return "\n".join(lines) if lines else "(no objects referenced in this plan)"
+
+
 def review(
     client: LLMClient,
     model: str,
@@ -158,6 +180,7 @@ def review(
     max_retries: int = 2,
     skip_ambiguity_check: bool = False,
     grounded: bool = False,
+    inject_facts: bool = False,
 ) -> CriticOutput:
     """Review the Planner's top interpretation, checking ambiguity first.
 
@@ -171,6 +194,15 @@ def review(
     not used by any of the four reported systems, that forces the Critic to
     look up an object's actual listed properties before reasoning about
     rules, to test whether that reduces hallucinated-property false rejects.
+    (The grounding experiment found this self-report approach unreliable -
+    see docs/methodology.md - `inject_facts` below is the follow-up attempt.)
+
+    `inject_facts`, when True, appends a code-computed (not self-reported)
+    block listing the real ontology properties of every object the chosen
+    interpretation's actions touch to the user message, as asserted fact -
+    not something the Critic is asked to look up itself. Experimental, not
+    used by any of the four reported systems; see
+    docs/methodology.md "Critic fact-injection experiment".
 
     Raises CriticError if the LLM's accept/reject response still can't be
     parsed after `max_retries` additional attempts.
@@ -198,6 +230,12 @@ def review(
     )
     user = (
         f"Command: {instruction!r}\n\n{_format_interpretation(top)}\n\nScene:\n{_format_scene(state)}"
+        + (
+            f"\n\nSystem-verified object properties for this plan (authoritative ground truth - "
+            f"use ONLY these, never assume a property not listed here):\n{_describe_object_facts(top.actions, ontology)}"
+            if inject_facts
+            else ""
+        )
     )
 
     last_error: Exception | None = None
