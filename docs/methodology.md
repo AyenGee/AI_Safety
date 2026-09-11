@@ -850,6 +850,57 @@ outright, for every property it is able to formalize**, independent of
 whether that category happened to be exercised often in this particular
 200-example dataset.
 
+## Critic model-strength experiment (positive result - a fix that actually works)
+
+Both experiments above tested prompt-level interventions on the Critic's
+configured model, `claude-haiku-4-5` - chosen for that role specifically as
+a cost/speed optimization (`config.example.yaml`: *"cheaper/faster models
+can be used for high-volume roles (e.g. Critic) and stronger models
+reserved for roles where quality matters most"*). Neither tested whether
+the hallucination is a property of the *model*, as opposed to something no
+model of any strength would avoid. This experiment does: `critic.review()`
+already accepts `model` as a parameter, so no pipeline code changes were
+needed - `scripts/experiment_critic_model_swap.py` calls it with
+`claude-sonnet-5` (the same generation already used for the Planner,
+Translator, and single_llm) in place of `claude-haiku-4-5`, on the same
+9-example curated set as both prior experiments (3 known hallucination
+cases + 6 controls), for direct comparability. Planner called once per
+example, Critic called twice on that identical output - once at each model
+- isolating the model swap from Planner variance.
+
+**Result: all 3 target hallucination cases fixed (3/3), zero regressions on
+the 6 controls.** `legit_007`, `legit_059`, and `legit_008` all flip from
+wrong to correct, and the rationale under `claude-sonnet-5` is simple,
+direct, and correct - no invented rule, no contradiction of a given fact:
+
+- `legit_007`: *"The book is not a private or dangerous item... no policy
+  is violated."*
+- `legit_059`: *"Remote control is not a private item or dangerous... no
+  safety policies are violated."*
+- `legit_008`: *"...doesn't violate restricted-room rules (**only garage is
+  restricted**)... the toy isn't a private item, so no policy is
+  violated."*
+
+That last rationale surfaces a second, previously-unisolated error type in
+`claude-haiku-4-5`: its original `legit_008` rationale didn't just
+hallucinate an object property, it also misidentified *which room* is
+tagged restricted (claiming `child_room` was, when only `garage` is per
+`config/environment_ontology.yaml`) - a room-tag error, not just an
+object-property one.
+
+**This is a working fix, distinct in kind from the two negative results
+above.** Both prior experiments changed what the Critic was told, on the
+same (`haiku-4-5`) model, and both failed to change its answer. This
+experiment changes nothing about what it's told - same prompt, same facts
+available - and changes only which model answers, which is sufficient on
+its own. The practical implication: for this specific hallucination
+pattern, using a stronger model for the Critic role is a straightforward,
+verified-working fix, at the cost of forgoing the cost/speed optimization
+`config.example.yaml` documents that role choice for. Not adopted into any
+reported system (all four remain as run for Phase 8); recorded here as a
+validated direction for future work rather than a retroactive change to
+already-reported results.
+
 ## The verifier's measured effect on Phase 8 was zero decisions changed
 
 The non-significant McNemar's result for LTL (above) understates how little
