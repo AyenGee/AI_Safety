@@ -21,6 +21,20 @@ modular multi-agent LLM intent-filtering layer improve rejection of
 unsafe/misdirected robotic commands while preserving recall on legitimate
 commands, compared to architectures without formal verification?
 
+**Scope note**: this research's core focus is safety - the `legitimate`
+(safe), `unsafe`, and `misdirected` categories, and the recall-safety
+tradeoff between them. The `ambiguous` category is present in the dataset
+and evaluation harness (it was part of the original brief, and the
+clarification mechanism is one of the three Multi-Agent+LTL components
+under ablation), but ambiguity-handling as a research question in its own
+right is a related but separate topic being pursued by another student, not
+a primary claim of this thesis. Findings involving the `ambiguous` category
+(the no-op blind spot, the margin-based clarify mechanism) are reported
+because they surfaced during the safety analysis and are relevant context
+for interpreting it, not as this research's own core contribution - see the
+"Binary (Accept vs. Reject) view" subsection under "Phase 8 results" for
+where this distinction matters for how a metric should be read.
+
 TODO: paste/link the full research question, hypotheses, and success
 criteria from the proposal document.
 
@@ -461,6 +475,46 @@ both, `multi_agent_ltl` has the highest Specificity (0.989) and Precision
 (0.968) of the four core systems, at the cost of the lowest Recall (0.852,
 tied with `multi_agent`) - the recall-safety tradeoff the proposal
 hypothesized, which the uncorrected raw output was obscuring.
+
+### Binary (Accept vs. Reject) view, and why it should not replace the metric above
+
+Collapsing `Clarify` (and `Error`) into `Reject` for both gold and predicted
+labels - i.e. ignoring the 3-way distinction and asking only "did an unsafe
+instruction get accepted" - gives a different, and if taken alone,
+misleading picture: under this merge `single_llm` (F1 0.855, Accuracy 0.933)
+and `single_llm_ltl` (F1 0.856, Accuracy 0.935) both edge out
+`multi_agent_ltl` (F1 0.777, Accuracy 0.903) on every metric. Taken at face
+value, this looks like it contradicts the Specificity result above.
+
+It doesn't - the two views are measuring different things, and splitting
+`multi_agent_ltl`'s false-accepts by which gold category they came from
+shows both effects are real and simply cancel out in the merged number:
+
+| Gold category (`multi_agent_ltl` vs `single_llm`) | Correctly not-accepted | False-accepted |
+|---|---|---|
+| Unsafe/misdirected (270) | 267 vs. 262 - **`multi_agent_ltl` wins by 5** | 3 vs. 8 |
+| Ambiguous (210) | 174 vs. 180 - **`single_llm` wins by 6** | 36 vs. 30 |
+| Combined (480) | 441 vs. 442 - single_llm wins by 1 | 39 vs. 38 |
+
+`multi_agent_ltl` genuinely, measurably catches more real unsafe/misdirected
+instructions than `single_llm` (267/270 vs. 262/270 - this is the
+Specificity result reported above, and the proposal's actual target
+metric). It also genuinely does worse specifically on the ambiguous
+category (174/210 vs. 180/210 - part of the same no-op/margin-mechanism
+effects documented elsewhere in this section). A binary merge that folds
+ambiguous instructions into "should have been rejected" combines these two
+different failure surfaces into one number, where a real safety
+improvement happens to be offset by an unrelated ambiguity-handling
+regression of similar size - masking, not correcting, the finding. **The
+unsafe/misdirected-only Specificity comparison (267 vs. 262) remains the
+headline safety claim**; the binary view is retained here only as a
+secondary, usability-oriented reading, not a replacement metric. This is
+also the more fundamental reason to prefer it, not just a statistical
+one: per the scope note under "Research question," this thesis's claims are
+about safety (legitimate/unsafe/misdirected), and ambiguity-handling is a
+related but separate research question pursued elsewhere - a metric that
+lets ambiguous-category performance dilute a safety comparison would be
+measuring outside this research's own scope.
 
 ## Critic grounding experiment (negative result)
 
