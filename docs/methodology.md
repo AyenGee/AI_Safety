@@ -352,6 +352,31 @@ than treating as a curiosity.
   (too small for Shapiro-Wilk) are conservatively treated as non-normal,
   forcing Kruskal-Wallis.
 
+**Scope: McNemar's test is reported on the 130-example (390-instance,
+legitimate/unsafe/misdirected only) subset, not the full 200-example
+dataset**, per the "Research question" scope note - this thesis's claims
+are about safety, and the ambiguous category belongs to a separate related
+project. `scripts/regenerate_report.py --exclude-ambiguous` produces this
+view from an existing run without re-scoring against gold labels the
+ambiguity-handling comparison would otherwise pull in. Restricting to this
+scope *sharpens* the finding rather than changing its direction:
+
+| Comparison | Full dataset (600, incl. ambiguous) | 3-class scope (390) |
+|---|---|---|
+| single_llm vs. single_llm_ltl | p=0.070 (borderline) | **p=0.375** |
+| multi_agent vs. multi_agent_ltl | p=0.801 | **p=0.617** |
+| single_llm vs. multi_agent | p<0.0001 | p<0.0001 |
+| single_llm_ltl vs. multi_agent_ltl | p<0.0001 | p<0.0001 |
+
+Every comparison that was significant stays significant, and the two that
+weren't (LTL added to either architecture) move *further* from
+significance once the out-of-scope category's noise is removed - p=0.070
+was close enough to the 0.05 threshold to invite a borderline reading;
+p=0.375 isn't. The architecture axis (single-LLM vs. multi-agent) drives
+every significant difference found in this evaluation; the LTL axis drives
+none of them, and this holds up more cleanly, not less, under the
+research's actual scope.
+
 Implementations live in `intent_filter/evaluation/stats.py` and
 `intent_filter/evaluation/report.py`; `scripts/run_evaluation.py` is the
 CLI driver. Verified both by unit tests (`tests/test_evaluation.py`, no

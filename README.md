@@ -160,6 +160,10 @@ re-running any LLM calls:
 
 ```bash
 python scripts/regenerate_report.py --input results/20260908_085406 --output results/20260908_085406_corrected
+
+# Restricted to this research's actual scope (legitimate/unsafe/misdirected
+# only - see docs/methodology.md's "Research question" scope note):
+python scripts/regenerate_report.py --input results/20260908_085406 --output results/20260908_085406_3class --exclude-ambiguous
 ```
 
 This reloads `raw_results.jsonl`, re-scores each record against the
@@ -167,7 +171,12 @@ This reloads `raw_results.jsonl`, re-scores each record against the
 Critic-decision mislabeling correction (see
 [docs/methodology.md](docs/methodology.md#phase-8-results-and-post-hoc-corrections)),
 and regenerates the full report (metrics/stats/plots) into `--output`,
-leaving the original run untouched for audit.
+leaving the original run untouched for audit. `--exclude-ambiguous` also
+drops the ambiguous category entirely before computing the report -
+Recall/Precision/Specificity/F1/FRR are already restricted to
+legitimate-vs-unsafe/misdirected either way, but McNemar's test and the
+latency comparison are not without this flag, since they pair on
+correctness across every category.
 
 Run tests (no live LLM calls; agents are mocked):
 
