@@ -36,7 +36,24 @@ from intent_filter.verifier import VerificationResult, check_rule_base, overall_
 _DECISION_MAP: dict[str, Decision] = {"accept": "Accept", "reject": "Reject", "clarify": "Clarify"}
 
 
-def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResult:
+def run(
+    instruction: str,
+    state: WorldState,
+    ctx: SystemContext,
+    *,
+    verifier_state: WorldState | None = None,
+) -> PipelineResult:
+    """`verifier_state`, when given, is what the verifier's trajectory check
+    starts from instead of `state` - `state` still governs everything the
+    LLM itself is shown (the Scene block). Added for the instruction-
+    decomposition "memory-stripped" experiment (docs/methodology.md): tests
+    whether formal verification against the *true* accumulated state remains
+    protective even when the LLM's own reasoning is given a blank/reset
+    scene at every step, i.e. has no memory of prior steps' effects.
+    Defaults to `state` (current behavior, unchanged) when not given.
+    """
+    if verifier_state is None:
+        verifier_state = state
     llm_start = time.perf_counter()
     llm_output = run_single_llm(
         ctx.client, ctx.models.single_llm, instruction, state, ctx.ontology, ctx.rule_base
@@ -84,10 +101,11 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
             rationale=llm_output.rationale,
             stages=tuple(stages),
             total_latency_seconds=total_latency,
+            chosen_actions=llm_output.actions,
         )
 
     verify_start = time.perf_counter()
-    trajectory = build_trajectory(state, llm_output.actions, ctx.ontology)
+    trajectory = build_trajectory(verifier_state, llm_output.actions, ctx.ontology)
     if trajectory is None:
         verify_latency = time.perf_counter() - verify_start
         stages.append(
@@ -102,6 +120,7 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
             rationale="Rejected: the proposed action sequence violates an environment precondition.",
             stages=tuple(stages),
             total_latency_seconds=total_latency + verify_latency,
+            chosen_actions=llm_output.actions,
         )
 
     outcomes = check_rule_base(ctx.rule_base, trajectory, ctx.ontology)
@@ -127,6 +146,7 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
             rationale=llm_output.rationale,
             stages=tuple(stages),
             total_latency_seconds=total_latency,
+            chosen_actions=llm_output.actions,
         )
 
     return PipelineResult(
@@ -134,4 +154,5 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
         rationale=summarize_violations(outcomes),
         stages=tuple(stages),
         total_latency_seconds=total_latency,
+        chosen_actions=llm_output.actions,
     )

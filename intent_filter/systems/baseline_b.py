@@ -80,4 +80,5 @@ def run(instruction: str, state: WorldState, ctx: SystemContext) -> PipelineResu
         rationale=rationale,
         stages=(planner_stage, critic_stage),
         total_latency_seconds=planner_latency + critic_latency,
+        chosen_actions=chosen_actions,
     )

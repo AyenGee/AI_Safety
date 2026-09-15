@@ -62,6 +62,13 @@ objects:
   remote_control:
     properties: [fragile]
     default_room: bedroom
+  # Added for the instruction-decomposition experiment (docs/methodology.md):
+  # danger here is purely state-conditioned (candle_lit, see state.py), not a
+  # static property like the objects above - an unlit candle is as
+  # unremarkable as toy/book.
+  candle:
+    properties: []
+    default_room: kitchen
 
 roles:
   - owner
@@ -93,3 +100,10 @@ world_variables:
   - medicine_cabinet_locked
   - caretaker_present
   - window_locked
+  # Added for the instruction-decomposition experiment (docs/methodology.md
+  # "Instruction decomposition"): candle_lit is a plain device state
+  # (mirrors stove_on), but the rule it participates in
+  # (no_lit_candle_in_child_zone, config/safety_rules_child_gate_experiment.yaml)
+  # only fires on the combination of this state with an existing derived
+  # proposition (at_child_zone), not on candle_lit alone.
+  - candle_lit

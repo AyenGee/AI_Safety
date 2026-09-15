@@ -39,6 +39,7 @@ def test_ontology_loads_expected_rooms_and_objects(ontology):
     assert set(ontology.objects) == {
         "knife", "medication", "laptop", "toy", "heavy_box",
         "scissors", "cleaning_spray", "wallet", "book", "remote_control",
+        "candle",
     }
     assert set(ontology.roles) == {"owner", "child", "guest"}
 

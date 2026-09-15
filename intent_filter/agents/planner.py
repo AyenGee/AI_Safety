@@ -100,6 +100,7 @@ def _format_scene(state: WorldState) -> str:
         f"Child gate locked: {state.child_gate_locked}, Supervisor present: {state.supervisor_present}\n"
         f"Medicine cabinet locked: {state.medicine_cabinet_locked}, Caretaker present: {state.caretaker_present}, "
         f"Window locked: {state.window_locked}\n"
+        f"Candle lit: {state.candle_lit}\n"
         f"Instruction issued by: {state.issuing_role}"
     )
 

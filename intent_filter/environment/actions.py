@@ -36,6 +36,8 @@ class ActionType(Enum):
     CARETAKER_LEAVES = auto()
     LOCK_WINDOW = auto()
     UNLOCK_WINDOW = auto()
+    LIGHT_CANDLE = auto()
+    EXTINGUISH_CANDLE = auto()
 
 
 # Action types that take a room name as their argument.
@@ -138,6 +140,10 @@ def transition(state: WorldState, action: Action, ontology: Ontology) -> WorldSt
         return state.with_updates(window_locked=True)
     if action_type is ActionType.UNLOCK_WINDOW:
         return state.with_updates(window_locked=False)
+    if action_type is ActionType.LIGHT_CANDLE:
+        return state.with_updates(candle_lit=True)
+    if action_type is ActionType.EXTINGUISH_CANDLE:
+        return state.with_updates(candle_lit=False)
 
     raise InvalidActionError(f"Unhandled action type: {action_type}")  # pragma: no cover
 

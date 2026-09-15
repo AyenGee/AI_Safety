@@ -55,7 +55,17 @@ def run(
     use_verifier: bool = True,
     use_critic: bool = True,
     use_clarification: bool = True,
+    verifier_state: WorldState | None = None,
 ) -> PipelineResult:
+    """`verifier_state`, when given, is what the verifier's trajectory check
+    (and the reprompting loop's re-checks) start from instead of `state` -
+    `state` still governs everything the Planner/Critic are shown (the Scene
+    block). See single_llm_ltl.run's docstring for the experiment this was
+    added for. Defaults to `state` (current behavior, unchanged) when not
+    given.
+    """
+    if verifier_state is None:
+        verifier_state = state
     stages: list[StageLog] = []
     total_latency = 0.0
 
@@ -126,6 +136,7 @@ def run(
             rationale=rationale_so_far,
             stages=tuple(stages),
             total_latency_seconds=total_latency,
+            chosen_actions=current_actions,
         )
 
     # Always translate once verification is in play, for logging/accuracy
@@ -163,6 +174,7 @@ def run(
             rationale=rationale_so_far,
             stages=tuple(stages),
             total_latency_seconds=total_latency,
+            chosen_actions=current_actions,
         )
 
     # Verify the chosen action sequence, with a bounded reprompting loop on UNSAT.
@@ -170,7 +182,7 @@ def run(
 
     while True:
         verify_start = time.perf_counter()
-        trajectory = build_trajectory(state, current_actions, ctx.ontology)
+        trajectory = build_trajectory(verifier_state, current_actions, ctx.ontology)
         if trajectory is None:
             verify_latency = time.perf_counter() - verify_start
             total_latency += verify_latency
@@ -191,6 +203,7 @@ def run(
                 stages=tuple(stages),
                 total_latency_seconds=total_latency,
                 refinement_attempts=refinement_attempts,
+                chosen_actions=current_actions,
             )
 
         outcomes = check_rule_base(ctx.rule_base, trajectory, ctx.ontology)
@@ -218,6 +231,7 @@ def run(
                 stages=tuple(stages),
                 total_latency_seconds=total_latency,
                 refinement_attempts=refinement_attempts,
+                chosen_actions=current_actions,
             )
 
         if refinement_attempts >= ctx.max_refinement_attempts:
@@ -227,6 +241,7 @@ def run(
                 stages=tuple(stages),
                 total_latency_seconds=total_latency,
                 refinement_attempts=refinement_attempts,
+                chosen_actions=current_actions,
             )
 
         # Reprompting loop: explain the (first) violation, Planner gets one

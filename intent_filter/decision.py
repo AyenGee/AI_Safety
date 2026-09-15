@@ -57,6 +57,16 @@ class PipelineResult:
     stages: tuple[StageLog, ...]
     total_latency_seconds: float
     refinement_attempts: int = 0
+    # The system's actual best-effort proposed action sequence, regardless of
+    # decision (empty if none was ever produced) - added for the
+    # instruction-decomposition experiment (docs/methodology.md), which
+    # needs to advance a running WorldState by what a system *actually*
+    # decided to do, not by an experiment-assumed ground truth. Not logged
+    # structurally anywhere else before this (single_llm/single_llm_ltl only
+    # logged a str repr in stage detail; baseline_b/multi_agent_ltl didn't
+    # log it at all) - purely additive, default preserves every existing
+    # caller's behavior unchanged.
+    chosen_actions: tuple[Action, ...] = ()
 
     def latency_by_stage(self) -> dict[str, float]:
         """Sum latency per stage name (a name can repeat across reprompting attempts)."""

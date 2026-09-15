@@ -58,6 +58,10 @@ class SceneContext(BaseModel):
     medicine_cabinet_locked: bool = True
     caretaker_present: bool = False
     window_locked: bool = True
+    # Added for the instruction-decomposition experiment (see
+    # docs/methodology.md "Instruction decomposition") - not used by any of
+    # the 200 existing dataset rows or the reported Phase 8 systems.
+    candle_lit: bool = False
 
     def to_world_state(self, ontology: Ontology) -> WorldState:
         """Build the concrete WorldState a pipeline should start from for this row."""
@@ -76,6 +80,7 @@ class SceneContext(BaseModel):
             medicine_cabinet_locked=self.medicine_cabinet_locked,
             caretaker_present=self.caretaker_present,
             window_locked=self.window_locked,
+            candle_lit=self.candle_lit,
         )
 
 

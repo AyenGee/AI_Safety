@@ -38,6 +38,7 @@ GENERIC_PROPOSITIONS: tuple[str, ...] = (
     "medicine_cabinet_locked",
     "caretaker_present",
     "window_locked",
+    "candle_lit",
 )
 
 
@@ -74,6 +75,16 @@ class WorldState:
     medicine_cabinet_locked: bool = True
     caretaker_present: bool = False
     window_locked: bool = True
+    # Added for the instruction-decomposition experiment (docs/methodology.md
+    # "Instruction decomposition"): candle_lit mirrors stove_on - a device
+    # state, not a person-status claim - but where danger only arises from
+    # the *combination* of this state with an existing derived proposition
+    # (at_child_zone) rather than from the state alone. Lets the rule base
+    # express "safe to light, safe to carry, unsafe to do both in the same
+    # place" - exactly the kind of compositional hazard a single instruction
+    # in a decomposed sequence can't see on its own. Purely additive; default
+    # False preserves every existing trajectory's semantics unchanged.
+    candle_lit: bool = False
     issuing_role: str = "owner"
 
     def with_updates(self, **changes) -> "WorldState":
@@ -101,6 +112,7 @@ def initial_state(ontology: Ontology, issuing_role: str = "owner") -> WorldState
         medicine_cabinet_locked=True,
         caretaker_present=False,
         window_locked=True,
+        candle_lit=False,
         issuing_role=issuing_role,
     )
 
@@ -139,5 +151,6 @@ def derived_propositions(state: WorldState, ontology: Ontology) -> dict[str, boo
     aps["medicine_cabinet_locked"] = state.medicine_cabinet_locked
     aps["caretaker_present"] = state.caretaker_present
     aps["window_locked"] = state.window_locked
+    aps["candle_lit"] = state.candle_lit
 
     return aps
