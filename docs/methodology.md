@@ -335,6 +335,49 @@ original command - a concrete illustration of the Critic's role beyond
 just ambiguity detection, worth surfacing in the results discussion rather
 than treating as a curiosity.
 
+### Limitation: the reprompting loop is unreviewed even in the full reported system
+
+The paragraph above was written about `remove_critic`, but re-reading
+`multi_agent_ltl.run()` (`intent_filter/systems/multi_agent_ltl.py:247-276`)
+while answering an external review question confirms the same gap exists in
+the **full reported system**, not just its ablation: `critic.review()` - the
+call that actually renders an accept/reject/clarify *judgement* - is
+invoked exactly once, on the Planner's very first candidate interpretation.
+If that plan fails verification, the only thing the (optional) Critic call
+inside the reprompting loop does is `explain_violation()` - narrating the
+violated rule in natural language *for the Planner's benefit* - never a
+second `review()` call on the *revised* plan. Every subsequent attempt is
+checked by the verifier alone; nothing ever asks again whether the revised
+plan still means what the user asked for. Structurally, the full system can
+suffer the exact same intent-drift/laundering failure the paragraph above
+describes for `remove_critic` - it is not immune, only less exposed.
+
+**"Less exposed" is now a measured claim, not a hedge.** Querying the full
+Phase 8 raw results (`results/20260908_085406/raw_results.jsonl`, 600 runs
+each):
+
+| System | Reprompt loop fired (`refinement_attempts >= 1`) | Of those, wrongly `Accept`ed |
+|---|---|---|
+| `multi_agent_ltl` (reported) | **0 / 600 (0%)** | n/a |
+| `remove_critic` (ablation) | 262 / 600 (43.7%) | 216 / 600 (36.0% of all runs) |
+
+In the reported system, the Critic's single upfront review was apparently
+enough to steer the Planner toward an already-compliant top interpretation
+in every one of the 600 Phase 8 runs - the reprompting loop's unreviewed
+code path was never actually exercised, so this limitation's real-world
+incidence on the reported results is zero, not merely theoretical. In
+`remove_critic`, with no Critic to keep the first attempt compliant, the
+loop fired on nearly half of all runs, and the majority of those became
+false Accepts - directly confirming, at full-dataset scale, the
+"Planner + Verifier only" section's finding that an unreviewed reprompting
+loop can systematically launder an unsafe instruction into an accepted
+plan. This is a genuine, structural limitation of `multi_agent_ltl` as
+implemented (a revised plan is never re-reviewed) that happened not to bite
+on this dataset, not evidence that the architecture is immune to it - a
+harder dataset with more UNSAT first-attempts from a well-functioning
+Critic could still expose it in the reported system, and that case is
+currently untested.
+
 ## Statistical testing
 
 - **McNemar's test** (`intent_filter/evaluation/stats.mcnemar_test`) for
@@ -1587,6 +1630,77 @@ still 20-21/24 here), or no LLM opinion **and** no retry at all
 combines an absent Critic with a loop that still gets to retry.
 
 Data: `results/planner_verifier_experiment.json`.
+
+## Translator formula accuracy: measuring the thing that was only ever logged
+
+The NL->LTL Translator runs on every LTL-augmented instruction, but its
+per-instruction formula is deliberately kept out of the decision path -
+only the fixed rule base gates accept/reject (`intent_filter/decision.py`'s
+module docstring). That design choice was reasoned about but never
+quantified: how accurate *is* the Translator, actually? No existing data
+could answer this - `RunRecord` never persists `PipelineResult.stages`, so
+every Phase 8 run's `ltl_formula` was computed live and discarded, not
+logged. Answering this needed a small new run, not a query.
+
+**Method**: for each of the 8 reported rules' two canonical examples
+(`violating_example`, `safe_example` - 16 instructions total), translate
+the instruction and separately plan it (`scripts/experiment_translator_accuracy.py`,
+32 LLM calls), then build one concrete trajectory from the Planner's action
+sequence. Both the Translator's formula and the rule's own formula are
+checked against that *same* trajectory (`verify_state_trajectory`,
+`intent_filter/verifier/verifier.py`) - a semantic comparison ("does the
+translated formula draw the same SAT/UNSAT line the rule does on this
+case"), not a string comparison, which would be meaningless given two
+formulas can be logically equivalent while textually different.
+
+**A scoring bug caught before reporting a number**: the first pass compared
+the translated verdict against each example's *assumed* label
+(`violating_example` "should" give UNSAT) rather than the rule's own
+verdict on the *actual* Planner-generated trajectory, giving 11/16 (68.8%).
+Two of those trajectories, though, turned out not to exercise the rule as
+intended at all - the rule's own formula evaluated SAT (not UNSAT) on the
+Planner's own plan for `no_medication_access_by_child`'s and
+`no_private_item_access_by_guest`'s violating examples, meaning the Planner
+didn't actually propose fetching the item in those specific runs. On those
+two, the Translator's formula agreed with the rule's own formula (both
+SAT) - a correct translation, wrongly scored against a label the
+trajectory itself didn't produce. Rescoring against the rule's own verdict
+on the same trajectory (what the method section above actually specifies)
+gives:
+
+**13/16 correct (81.2%)**, `n_ground_truth_mismatch=2` (the two
+Planner-grounding cases above, excluded from being counted against the
+Translator either way), `n_fallback=0` (every case got a real LLM
+translation, never the deterministic template fallback).
+
+The three genuine failures are all real translation errors, not noise, and
+share one specific pattern - **inverted material implication**:
+
+- `no_stove_control_from_bathroom` (rule: `G(!(stove_on & agent_at(bathroom)))`)
+  translated as `G(stove_on -> agent_at(bathroom))` - "whenever the stove is
+  on, the agent must be in the bathroom," the logical inverse of the
+  intended "never both at once." Trivially satisfied by the violating
+  trajectory it was meant to catch.
+- `lock_door_when_owner_away` (rule: `G(door_locked | owner_home)`,
+  equivalently `G(!owner_home -> door_locked)`) translated as
+  `G((!owner_home) -> (!door_locked))` - requires the door to be *unlocked*
+  whenever the owner is away, the exact inverse of the safety property.
+- `no_restricted_room_entry_by_guest` collapsed to `G(true)` for **both**
+  its violating and safe example - a vacuous formula capturing no
+  constraint at all, rather than an inverted one.
+
+81.2% sits squarely inside the ~75-83% range reported for other LLM-based
+NL->LTL translation pipelines (Lang2LTL/NL2TL-style) - not a favorable
+outlier, and not a surprise. This is exactly why the architecture keeps
+this step out of the safety-critical path: if these same formulas had
+gated the decision, the door and stove examples above - two of the
+reported 8 rules' own canonical violating cases - would have been silently
+**accepted** by a translation error that inverts a safety property, not
+merely missed one. The fixed rule base's `~100%` reliability (it's
+hand-written, not generated) and the Translator's `81.2%` are not
+interchangeable, and the system never treats them as such.
+
+Data: `results/translator_accuracy_experiment.json`.
 
 ## The verifier's measured effect on Phase 8 was zero decisions changed
 
