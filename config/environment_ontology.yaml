@@ -85,3 +85,11 @@ world_variables:
   # trajectory's semantics unchanged.
   - child_gate_locked
   - supervisor_present
+  # Added for the large-scale generalization run (docs/methodology.md) - two
+  # more device-state/person-status pairs for object diversity. window_locked
+  # and medicine_cabinet_locked mirror door_locked (safe by default);
+  # caretaker_present mirrors owner_home/supervisor_present (a person-status
+  # claim). See config/safety_rules_child_gate_experiment.yaml.
+  - medicine_cabinet_locked
+  - caretaker_present
+  - window_locked

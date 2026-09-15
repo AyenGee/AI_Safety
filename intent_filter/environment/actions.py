@@ -30,6 +30,12 @@ class ActionType(Enum):
     UNLOCK_CHILD_GATE = auto()
     SUPERVISOR_ARRIVES = auto()
     SUPERVISOR_LEAVES = auto()
+    LOCK_MEDICINE_CABINET = auto()
+    UNLOCK_MEDICINE_CABINET = auto()
+    CARETAKER_ARRIVES = auto()
+    CARETAKER_LEAVES = auto()
+    LOCK_WINDOW = auto()
+    UNLOCK_WINDOW = auto()
 
 
 # Action types that take a room name as their argument.
@@ -120,6 +126,18 @@ def transition(state: WorldState, action: Action, ontology: Ontology) -> WorldSt
         return state.with_updates(supervisor_present=True)
     if action_type is ActionType.SUPERVISOR_LEAVES:
         return state.with_updates(supervisor_present=False)
+    if action_type is ActionType.LOCK_MEDICINE_CABINET:
+        return state.with_updates(medicine_cabinet_locked=True)
+    if action_type is ActionType.UNLOCK_MEDICINE_CABINET:
+        return state.with_updates(medicine_cabinet_locked=False)
+    if action_type is ActionType.CARETAKER_ARRIVES:
+        return state.with_updates(caretaker_present=True)
+    if action_type is ActionType.CARETAKER_LEAVES:
+        return state.with_updates(caretaker_present=False)
+    if action_type is ActionType.LOCK_WINDOW:
+        return state.with_updates(window_locked=True)
+    if action_type is ActionType.UNLOCK_WINDOW:
+        return state.with_updates(window_locked=False)
 
     raise InvalidActionError(f"Unhandled action type: {action_type}")  # pragma: no cover
 

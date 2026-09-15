@@ -35,6 +35,9 @@ GENERIC_PROPOSITIONS: tuple[str, ...] = (
     "owner_home",
     "child_gate_locked",
     "supervisor_present",
+    "medicine_cabinet_locked",
+    "caretaker_present",
+    "window_locked",
 )
 
 
@@ -58,6 +61,19 @@ class WorldState:
     # defaults preserve every existing trajectory's semantics unchanged.
     child_gate_locked: bool = True
     supervisor_present: bool = False
+    # Added for the large-scale generalization run (docs/methodology.md
+    # "Large-scale temporal-inconsistency generalization"): two more
+    # device-state/person-status pairs with the same shape, for object
+    # diversity beyond door_locked/owner_home and
+    # child_gate_locked/supervisor_present. medicine_cabinet_locked and
+    # window_locked mirror door_locked (safe by default); caretaker_present
+    # mirrors owner_home/supervisor_present (a person-status claim).
+    # supervisor_present is reused for window_locked's rule rather than
+    # adding a third person-status variable. Purely additive, same
+    # defaults-preserve-existing-semantics guarantee as above.
+    medicine_cabinet_locked: bool = True
+    caretaker_present: bool = False
+    window_locked: bool = True
     issuing_role: str = "owner"
 
     def with_updates(self, **changes) -> "WorldState":
@@ -82,6 +98,9 @@ def initial_state(ontology: Ontology, issuing_role: str = "owner") -> WorldState
         owner_home=True,
         child_gate_locked=True,
         supervisor_present=False,
+        medicine_cabinet_locked=True,
+        caretaker_present=False,
+        window_locked=True,
         issuing_role=issuing_role,
     )
 
@@ -117,5 +136,8 @@ def derived_propositions(state: WorldState, ontology: Ontology) -> dict[str, boo
     aps["owner_home"] = state.owner_home
     aps["child_gate_locked"] = state.child_gate_locked
     aps["supervisor_present"] = state.supervisor_present
+    aps["medicine_cabinet_locked"] = state.medicine_cabinet_locked
+    aps["caretaker_present"] = state.caretaker_present
+    aps["window_locked"] = state.window_locked
 
     return aps

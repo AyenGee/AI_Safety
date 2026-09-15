@@ -55,6 +55,9 @@ class SceneContext(BaseModel):
     # the 200 existing dataset rows or the reported Phase 8 systems.
     child_gate_locked: bool = True
     supervisor_present: bool = False
+    medicine_cabinet_locked: bool = True
+    caretaker_present: bool = False
+    window_locked: bool = True
 
     def to_world_state(self, ontology: Ontology) -> WorldState:
         """Build the concrete WorldState a pipeline should start from for this row."""
@@ -70,6 +73,9 @@ class SceneContext(BaseModel):
             owner_home=self.owner_home,
             child_gate_locked=self.child_gate_locked,
             supervisor_present=self.supervisor_present,
+            medicine_cabinet_locked=self.medicine_cabinet_locked,
+            caretaker_present=self.caretaker_present,
+            window_locked=self.window_locked,
         )
 
 
