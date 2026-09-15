@@ -12,7 +12,8 @@
 #   at_child_zone             - derived: agent_room has tag `child_zone`
 #   at_restricted_room        - derived: agent_room has tag `restricted`
 #   at_private_room           - derived: agent_room has tag `private`
-#   door_locked, alarm_on, stove_on, owner_home  - world_variables
+#   door_locked, alarm_on, stove_on, owner_home,
+#   child_gate_locked, supervisor_present         - world_variables
 #   issued_by(<role>)         - grounded per role of the command's issuer,
 #                                constant for the duration of one instruction
 #

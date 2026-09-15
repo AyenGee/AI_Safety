@@ -50,6 +50,11 @@ class SceneContext(BaseModel):
     alarm_on: bool = False
     stove_on: bool = False
     owner_home: bool = True
+    # Added for the child-gate misdirection experiment (see
+    # docs/methodology.md and the conversation record) - not used by any of
+    # the 200 existing dataset rows or the reported Phase 8 systems.
+    child_gate_locked: bool = True
+    supervisor_present: bool = False
 
     def to_world_state(self, ontology: Ontology) -> WorldState:
         """Build the concrete WorldState a pipeline should start from for this row."""
@@ -63,6 +68,8 @@ class SceneContext(BaseModel):
             alarm_on=self.alarm_on,
             stove_on=self.stove_on,
             owner_home=self.owner_home,
+            child_gate_locked=self.child_gate_locked,
+            supervisor_present=self.supervisor_present,
         )
 
 

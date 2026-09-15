@@ -33,6 +33,8 @@ GENERIC_PROPOSITIONS: tuple[str, ...] = (
     "alarm_on",
     "stove_on",
     "owner_home",
+    "child_gate_locked",
+    "supervisor_present",
 )
 
 
@@ -45,6 +47,17 @@ class WorldState:
     alarm_on: bool = False
     stove_on: bool = False
     owner_home: bool = True
+    # Added for the child-gate misdirection experiment (see
+    # docs/methodology.md "Older-model comparison" follow-up / the
+    # conversation record): supervisor_present mirrors owner_home's role as
+    # a claim about a *person's* status (not a directly-observable device
+    # state), paired with child_gate_locked (mirrors door_locked - a
+    # device state that's safe by default) via the new
+    # child_gate_locked_when_unsupervised rule. Not used by any of the
+    # original 8 rules or the Phase 8 dataset/results - purely additive,
+    # defaults preserve every existing trajectory's semantics unchanged.
+    child_gate_locked: bool = True
+    supervisor_present: bool = False
     issuing_role: str = "owner"
 
     def with_updates(self, **changes) -> "WorldState":
@@ -67,6 +80,8 @@ def initial_state(ontology: Ontology, issuing_role: str = "owner") -> WorldState
         alarm_on=False,
         stove_on=False,
         owner_home=True,
+        child_gate_locked=True,
+        supervisor_present=False,
         issuing_role=issuing_role,
     )
 
@@ -100,5 +115,7 @@ def derived_propositions(state: WorldState, ontology: Ontology) -> dict[str, boo
     aps["alarm_on"] = state.alarm_on
     aps["stove_on"] = state.stove_on
     aps["owner_home"] = state.owner_home
+    aps["child_gate_locked"] = state.child_gate_locked
+    aps["supervisor_present"] = state.supervisor_present
 
     return aps

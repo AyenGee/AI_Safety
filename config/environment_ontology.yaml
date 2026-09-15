@@ -76,3 +76,12 @@ world_variables:
   - door_locked
   - stove_on
   - owner_home
+  # Added for the child-gate misdirection experiment (see docs/methodology.md
+  # and the conversation record): supervisor_present mirrors owner_home's
+  # role as a claim about a person's status; child_gate_locked mirrors
+  # door_locked as a device state that's safe by default. Not used by any of
+  # the original 8 rules - see child_gate_locked_when_unsupervised in
+  # safety_rules.yaml. Purely additive; defaults preserve every existing
+  # trajectory's semantics unchanged.
+  - child_gate_locked
+  - supervisor_present
