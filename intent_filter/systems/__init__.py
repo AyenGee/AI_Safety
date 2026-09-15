@@ -13,7 +13,7 @@ from typing import Callable
 
 from intent_filter.decision import PipelineResult, SystemContext
 from intent_filter.environment.state import WorldState
-from intent_filter.systems import baseline_a, baseline_b, multi_agent_ltl, single_llm_ltl
+from intent_filter.systems import baseline_a, baseline_b, multi_agent_ltl, planner_verifier, single_llm_ltl
 
 SystemRunFn = Callable[[str, WorldState, SystemContext], PipelineResult]
 
@@ -22,6 +22,15 @@ SYSTEMS: dict[str, SystemRunFn] = {
     "multi_agent": baseline_b.run,
     "single_llm_ltl": single_llm_ltl.run,
     "multi_agent_ltl": multi_agent_ltl.run,
+}
+
+# Experimental systems outside the reported four - not included in SYSTEMS
+# (and so never picked up by a default run_evaluation.py run, --systems
+# filter, or the ABLATIONS merge below) to avoid silently widening Phase 8's
+# reported scope. Opt in explicitly by importing planner_verifier.run, or by
+# name from this dict.
+EXPERIMENTAL_SYSTEMS: dict[str, SystemRunFn] = {
+    "planner_verifier": planner_verifier.run,
 }
 
 # Phase 6 ablations: Multi-Agent+LTL with one component removed at a time,
@@ -38,9 +47,11 @@ ABLATIONS: dict[str, SystemRunFn] = {
 __all__ = [
     "SYSTEMS",
     "ABLATIONS",
+    "EXPERIMENTAL_SYSTEMS",
     "SystemRunFn",
     "baseline_a",
     "baseline_b",
     "single_llm_ltl",
     "multi_agent_ltl",
+    "planner_verifier",
 ]

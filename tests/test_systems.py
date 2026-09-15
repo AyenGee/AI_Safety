@@ -14,7 +14,7 @@ import pytest
 from intent_filter.agents import ScriptedLLMClient
 from intent_filter.decision import SystemContext
 from intent_filter.environment import initial_state
-from intent_filter.systems import baseline_a, baseline_b, multi_agent_ltl, single_llm_ltl
+from intent_filter.systems import baseline_a, baseline_b, multi_agent_ltl, planner_verifier, single_llm_ltl
 
 MODEL = "claude-sonnet-5"
 
@@ -520,6 +520,85 @@ def test_ablation_remove_critic_reprompt_uses_verifier_summary_not_llm_explanati
     assert result.refinement_attempts == 1
     assert "critic_explain" not in [s.stage for s in result.stages]
     assert len(client.calls) == 3  # planner, translator, replan - no explanation call
+
+
+# --- Planner + Verifier only, strict one-shot (experimental, not Phase 6/8) ----------------
+
+
+def test_planner_verifier_accepts_safe_plan(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "safe plan", "confidence": 0.95, "actions": SAFE_ACTIONS}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = planner_verifier.run("Bring the toy to the child's room", state, ctx)
+
+    assert result.decision == "Accept"
+    assert [s.stage for s in result.stages] == ["planner", "translator", "verifier"]
+    assert len(client.calls) == 2  # planner, translator - no critic, no retry
+
+
+def test_planner_verifier_rejects_unsafe_plan_with_no_retry(ontology, ctx_factory):
+    """Unlike remove_critic (multi_agent_ltl.run(..., use_critic=False)), which
+    gives the Planner one bounded retry on UNSAT, this system has no
+    reprompting loop at all: exactly one planner call, and the verifier's
+    verdict on that first plan is final."""
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "unsafe plan", "confidence": 0.95, "actions": UNSAFE_ACTIONS}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client, max_refinement_attempts=5)  # would matter for multi_agent_ltl; must not here
+    state = initial_state(ontology)
+
+    result = planner_verifier.run("Bring the knife to the child's room", state, ctx)
+
+    assert result.decision == "Reject"
+    assert "no_knife_in_child_room" in result.rationale
+    assert result.refinement_attempts == 0
+    assert len(client.calls) == 2  # exactly planner + translator, no second planner call
+
+
+def test_planner_verifier_empty_actions_becomes_clarify_without_verifying(ontology, ctx_factory):
+    """Translator still runs (logged for every instruction, matching
+    single_llm_ltl/multi_agent_ltl precedent) but the verifier is skipped -
+    there is nothing meaningful to check an empty action list against."""
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "no-op", "confidence": 0.95, "actions": []}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = planner_verifier.run("Do nothing in particular", state, ctx)
+
+    assert result.decision == "Clarify"
+    assert [s.stage for s in result.stages] == ["planner", "translator"]
+    assert "verifier" not in [s.stage for s in result.stages]
+    assert len(client.calls) == 2
+
+
+def test_planner_verifier_invalid_action_sequence_rejected(ontology, ctx_factory):
+    client = ScriptedLLMClient(
+        responses=[
+            _planner_json([{"description": "bad plan", "confidence": 0.95, "actions": INVALID_ACTIONS}]),
+            _translator_json("G(true)"),
+        ]
+    )
+    ctx = ctx_factory(client)
+    state = initial_state(ontology)
+
+    result = planner_verifier.run("Get me my medication", state, ctx)
+
+    assert result.decision == "Reject"
+    assert result.stages[-1].detail["result"] == "UNKNOWN"
 
 
 def test_ablation_remove_clarification_forces_critic_call_despite_ambiguity(ontology, ctx_factory):
