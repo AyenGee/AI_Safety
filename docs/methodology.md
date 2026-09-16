@@ -38,6 +38,63 @@ where this distinction matters for how a metric should be read.
 TODO: paste/link the full research question, hypotheses, and success
 criteria from the proposal document.
 
+## Design positioning relative to related LTL-for-agent-safety work
+
+Brief, not a literature review: this system's design choices were pressure-
+tested against a set of concerns raised about comparable LTL-verification-
+for-agent-safety architectures - LogicGuard (arxiv 2507.03293), VeriPlan
+(arxiv 2502.17898), and ConformalNL2LTL (arxiv 2504.21022), plus SafeAgentBench,
+ThinkSafe, and SafePlan referenced by name only `TODO(cite)`. Four of the
+five concerns map onto something this codebase already does, or has since
+measured directly, rather than being an open question:
+
+- **Offline vs. runtime checking.** This verifier is unambiguously offline:
+  `build_trajectory()` (`intent_filter/decision.py`) simulates a proposed
+  action sequence via the same deterministic `transition()` function
+  planning uses, entirely in memory, before anything executes - there is no
+  separate embodied execution layer for a real trace to diverge from. That
+  is a genuine scope limitation relative to systems built for embodied,
+  retry-heavy execution (AI2-THOR-style), named explicitly as such in the
+  Discussion's limitations, not left implicit.
+- **Repair loop vs. dead stop.** `multi_agent_ltl` already feeds a UNSAT
+  violation back to the Planner as a bounded-retry repair signal
+  (`intent_filter/systems/multi_agent_ltl.py`), not a binary refusal - but
+  this project also *found and measured* the repair loop's own failure
+  mode the surrounding literature warns about: an unreviewed revision can
+  satisfy a rule base's letter while abandoning the original intent,
+  confirmed at 36% of all `remove_critic` Phase 8 runs and named as a real,
+  if empirically unexercised (0/600), limitation of the reported system
+  itself ("Limitation: the reprompting loop is unreviewed..." above).
+- **Fixed rule library vs. LLM-translated per-instruction formulas.** This
+  system deliberately does the hybrid the literature recommends explicit
+  about, rather than defaulting to one: the fixed 8-rule library gates
+  every decision; the per-instruction Translator formula is logged but
+  never decision-relevant (`intent_filter/decision.py`'s module docstring)
+  specifically to avoid laundering an unverified LLM step through something
+  that looks formally sound. That caution was justified empirically, not
+  just architecturally: measured Translator accuracy is 81.2% ("Translator
+  formula accuracy" above), and its 3 genuine failures invert a safety
+  property's logical polarity rather than merely missing it - had that
+  formula gated the decision, two of the 8 reported rules' own canonical
+  violating examples would have been silently accepted.
+- **LTL only catches compounding hazards someone thought to formalize.**
+  Directly confirmed both ways in this project: verification caught a
+  genuine cross-step hazard when the formula existed
+  ("Instruction decomposition" above) and provided *zero* protection
+  against a misdirection pattern no formula was written to catch, at scale
+  (100 instructions, "Large-scale generalization" above) - not a
+  theoretical soundness-vs-completeness caveat but a measured, falsified-
+  and-confirmed instance of it. This is also the direct justification for
+  why the Critic is treated throughout this document as carrying real,
+  distinct load rather than a redundant layer next to the verifier.
+- **Ordering/cost (verify-first to prune before an expensive Critic call)
+  is a genuinely reasonable optimization this codebase does not implement**
+  - `multi_agent_ltl` calls the Critic before the verifier, so cost is not
+  minimized on the subset of plans that are UNSAT regardless of anyone's
+  opinion. Left as a named, credible future direction (Discussion above)
+  rather than attempted mid-project, since it would restructure the
+  reported architecture's decision order.
+
 ## Systems under comparison
 
 See [architecture.md](architecture.md) for the four systems (Single-LLM,
@@ -1929,23 +1986,31 @@ correctly.
 
 ### Limitations of this evidence base
 
-- **Two different tiers of statistical confidence are mixed together
-  above, deliberately.** Phase 8 (200 examples x 3 repeats, confidence
-  intervals, McNemar/ANOVA-or-Kruskal-Wallis) is confirmatory. Everything
-  after it - the Critic-quality experiments, the large-scale
-  generalization run (n=100, still single-repeat), instruction
-  decomposition (2 chains), rules-removed (n=24), `planner_verifier`
-  (n=24), Translator accuracy (n=16) - is exploratory: single-repeat,
-  no confidence intervals, sized for API cost rather than statistical
-  power. Every exploratory finding above was checked against actual
-  rationale/action text before being trusted (documented per-section as
-  it happened), which substitutes for statistical power on the specific
-  claim being checked, but does not substitute for it on the question of
-  how the effect size would look at Phase-8 scale. Where this document
-  states an exploratory finding as a "clean" result (e.g. the knife chain
-  in the decomposition experiment, 4/4 systems for 4/4 reasons confirmed
-  by rationale), that confidence is about the mechanism being genuine, not
-  about its magnitude generalizing unchanged to a larger sample.
+- **Three tiers of statistical confidence are mixed together above,
+  deliberately, and they are not all equally weak.** Phase 8 (200 examples
+  x 3 repeats, confidence intervals, McNemar/ANOVA-or-Kruskal-Wallis) is
+  confirmatory - the only tier with repeat-based variance estimates. The
+  large-scale generalization run (100 instructions across 5 object
+  families, single-repeat) sits in a middle tier: no confidence intervals
+  or significance test, but a single-shot sample large enough, and effect
+  sizes large enough (60-95% wrong per family, door corrected to 18-19/20),
+  that the finding (verification provides no measurable protection against
+  this misdirection class) does not plausibly reduce to sampling noise -
+  distinct from the smallest-tier experiments below it, and treated as such
+  rather than lumped in with them. Everything else - the Critic-quality
+  experiments, instruction decomposition (2 chains), rules-removed (n=24),
+  `planner_verifier` (n=24), Translator accuracy (n=16), prompt injection
+  (n=18) - is the smallest, most exploratory tier: single-repeat, small n,
+  sized for API cost rather than statistical power. Every finding at every
+  tier below Phase 8 was checked against actual rationale/action text
+  before being trusted (documented per-section as it happened, including
+  three separate instances of catching and fixing a scoring or design
+  confound rather than reporting the first number produced), which
+  substitutes for statistical power on the specific claim being checked,
+  but does not substitute for it on the question of how the effect size
+  would look at Phase-8 scale for the smallest-tier experiments
+  specifically. Scaling any of this tier up to confirmatory repeats is
+  deliberately deferred future work, not attempted here.
 - **The reprompting-loop limitation's 0/600 incidence is an absence of
   evidence, not evidence of absence** - stated explicitly above and
   repeated here because it is the limitation most likely to be
