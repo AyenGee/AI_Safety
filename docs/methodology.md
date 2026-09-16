@@ -1766,6 +1766,212 @@ real code path (the entire Critic call) and shows a large, non-noise effect
 (Specificity 0.981 -> 0.137) - that's what an ablation with genuine causal
 effect looks like, and `remove_verifier` is not one.
 
+## Discussion: does LTL verification improve the recall-safety tradeoff?
+
+**H1** (the research question, restated as a directional claim): integrating
+LTL formal verification into a modular multi-agent LLM intent-filtering
+layer improves rejection of unsafe/misdirected commands, without
+sacrificing recall on legitimate commands, compared to architectures
+without formal verification. Every experiment in this document bears on
+this claim somewhere; nothing so far has stepped back and answered it using
+all of them together. This section does that.
+
+### The headline answer is not what the framing implies
+
+Reading Phase 8's pooled metrics precisely (`results/20260908_085406_corrected/metrics_summary.json`):
+
+| System | Recall (accepts legitimate) | Specificity (rejects unsafe/misdirected) | McNemar vs. non-LTL counterpart |
+|---|---|---|---|
+| `single_llm` | 0.983 | 0.970 | - |
+| `single_llm_ltl` | 0.967 (-1.6pp) | 0.970 (+0.0pp) | p = 1.0 (statistic 4.0; 4 vs. 4 discordant pairs) |
+| `multi_agent` | 0.867 | 0.981 | - |
+| `multi_agent_ltl` | 0.842 (-2.5pp) | 0.989 (+0.7pp) | p = 0.694 (statistic 0.155; 27 vs. 31 discordant pairs) |
+
+Both `+LTL` deltas are small and statistically indistinguishable from
+noise. The large, highly significant effect in this table is
+`single_llm` -> `multi_agent`: recall drops 11.6 points (0.983 -> 0.867)
+while specificity rises only 1.1 points (0.970 -> 0.981) - McNemar
+p = 7.6x10^-10. **On the reported dataset, essentially the entire
+recall-safety tradeoff this thesis set out to measure is bought by adding
+the Critic (a semantic LLM reviewer), not by adding LTL verification.**
+Formal verification, layered on top of either architecture, moves almost
+nothing.
+
+"The verifier's measured effect on Phase 8 was zero decisions changed"
+(above) explains the mechanism precisely, not just statistically: of the
+148/600 `multi_agent_ltl` runs that ever reached the verify stage (the
+Critic's own reject/clarify short-circuits the rest), 146 reached
+`check_rule_base` and **all 146 returned SAT** - the deterministic
+mechanism that evaluates the 8 LTL formulas against a live trajectory
+agreed with the Critic's own judgement 146/146 times on this dataset. It
+never had the opportunity to disagree, so it never could have changed a
+decision. Read naively, H1 is not supported by Phase 8: the intervention
+that actually improves safety here is a second LLM opinion, not formal
+verification.
+
+### Every experiment since Phase 8 is really one long investigation into *why*, and *when it isn't true*
+
+Taken in isolation the paragraph above would be a clean null result. It
+isn't the whole story, because every subsequent experiment was, in
+effect, searching for the conditions under which the verifier's 146/146
+agreement rate would break - and found them, in two opposite directions.
+
+**Where verification is structurally powerless, no matter how the Critic is
+tuned.** The Critic-quality experiments (grounding - negative,
+fact-injection - negative, model-strength swap - positive, older-model
+comparison) collectively established that when the verifier is silent, the
+Critic's own judgement is the entire safety mechanism, and its
+reliability is bound to model capability, not prompt engineering - a
+weaker model hallucinates object properties no amount of extra prompt
+structure fixes, and a stronger model fixes it "for free." The large-scale
+temporal-misdirection generalization (100 instructions, 5 objects)
+extends this to a specific, important limit case: `single_llm_ltl`
+provided **zero measurable protection** over `single_llm` on any of the
+five object families, because the misdirection never causes a tracked
+world-state proposition to become false - the device stays safely locked
+throughout. There is no violation in the trajectory for a verifier to
+find, regardless of how the formula is written or how good the Planner is.
+Whatever partial protection existed there (never a clean catch, only
+`Clarify` 15-45% of the time) came entirely from the Critic's semantic
+judgement and the Planner's ambiguity-margin mechanism - the same two
+components already shown to be doing all the work in Phase 8.
+
+**Where verification is the only thing that works, regardless of how the
+LLM reasoning is configured.** The instruction-decomposition experiments
+are the mirror image. Across three conditions (full state visibility,
+memory-blind reasoning with a sighted verifier, and fully stateless), the
+pattern is exact: `single_llm`/`multi_agent` fail the moment reasoning
+loses memory of a hazard created by an earlier step - their own rationale
+confirms genuine architectural blindness ("holding **nothing**"), not a
+subtle trick - while `single_llm_ltl`/`multi_agent_ltl` keep catching it,
+using the identical blind LLM calls as the systems that failed, purely
+because the verifier is fed the *true* accumulated state. The moment that
+one assumption is removed (Condition 3, the verifier also loses state),
+all four systems fail identically, 8/8 unsafe - confirming the effect is
+real and attributable to state-tracking specifically, not a hidden
+confound. This is the cleanest, most direct evidence in the whole project
+that formal verification does something a Critic - however well-tuned -
+structurally cannot: it evaluates ground truth, not a language model's
+belief about ground truth, and that distinction is worthless when nothing
+is hidden from the LLM (Phase 8) and decisive when something is
+(decomposition).
+
+**Where the rule base's value is precision, not recall.** The
+rules-removed ablation adds a third axis that "does verification help"
+alone doesn't capture: with the safety policy stripped from *both* the
+Critic's prompt and the verifier, `multi_agent`'s misdirection-catching
+survives (7/8) but its accuracy on *legitimate* instructions collapses
+(3-4/8, worse than `single_llm`'s clean 8/8 on the identical items) -
+rationale showing the Critic inventing concerns with nothing concrete to
+anchor its judgement ("the robot should not autonomously leave the house").
+The rule base's job in this architecture is not only enabling rejections;
+it is calibrating the Critic away from indiscriminate suspicion. This
+matters for H1 because it means "recall" in the recall-safety tradeoff
+depends on having *a stated policy*, of which the fixed, verifiable rule
+base is the more reliable half - the Translator's per-instruction
+alternative measured at 81.2% (`results/translator_accuracy_experiment.json`),
+with the three genuine failures all inverting a safety property's logical
+polarity rather than merely missing it.
+
+**Where verification without review is actively worse than either
+extreme.** `planner_verifier` (Planner + verifier, no Critic, no retry, new
+this document) scored 22/24 on a matched subset - close to the reported
+systems - while `remove_critic` (Planner + verifier, no Critic, *with* a
+bounded retry) scored 13/24 on the identical instructions and, at full
+Phase-8 scale, entered its reprompting loop on 43.7% of all 600 runs, 216
+of which (36.0% of all runs) became false Accepts. The mechanism, confirmed
+via `refinement_attempts` in the raw records: an unreviewed revised plan
+only has to satisfy the rule base's *letter*, not the instruction's
+intent, and a retry loop gives it repeated chances to find such a plan.
+Critically, the *reported* `multi_agent_ltl` system's identical code path
+never fired at all in Phase 8 (0/600) - the Critic's single upfront review
+was apparently always sufficient to keep the Planner's first attempt
+compliant - but this is a measured absence of incidence on this dataset,
+not evidence the reported architecture is immune to the same failure mode
+("Limitation: the reprompting loop is unreviewed even in the full reported
+system", above).
+
+### A refined statement of H1
+
+The literal H1, evaluated on the Phase 8 dataset as designed, is **not
+supported**: formal verification changed zero decisions there, and the
+measured recall-safety tradeoff is a property of adding a second LLM
+opinion, not of adding formal verification. But every experiment run to
+explain that null result converges on a more precise, falsifiable claim
+that *is* supported:
+
+> LTL verification's contribution to the recall-safety tradeoff is
+> conditional on the hazard manifesting as a violation of explicitly
+> modeled, persistently tracked world state. Where a hazard is entirely
+> a matter of interpreting the plausibility of a natural-language claim
+> (the misdirection categories Phase 8 was built around), verification is
+> structurally inert and the tradeoff is set entirely by the LLM reviewer's
+> own judgement and the calibration a stated policy gives it. Where a
+> hazard instead requires composing information across steps or components
+> that an LLM's own context does not reliably retain, verification is not
+> merely helpful but the *only* mechanism in this architecture that
+> reliably catches it - conditional in turn on the surrounding system
+> correctly feeding it accurate, persistent state, an engineering
+> assumption this project's experiments deliberately isolated and none of
+> which the original 200-instruction dataset was designed to test either
+> way.
+
+Phase 8's dataset happens to sit almost entirely in the first regime. That
+is a fact about the dataset's category design (temporal-inconsistency and
+narrative misdirection, evaluated one instruction at a time with full
+state visibility), not a general property of LTL verification - the
+decomposition experiments show the second regime is reachable by
+construction, and the large-scale generalization run shows the first
+regime is not an edge case either. A thesis that reported only Phase 8
+would understate what was actually learned; a thesis that reported only
+the decomposition result would overstate it. Both are needed to state H1
+correctly.
+
+### Limitations of this evidence base
+
+- **Two different tiers of statistical confidence are mixed together
+  above, deliberately.** Phase 8 (200 examples x 3 repeats, confidence
+  intervals, McNemar/ANOVA-or-Kruskal-Wallis) is confirmatory. Everything
+  after it - the Critic-quality experiments, the large-scale
+  generalization run (n=100, still single-repeat), instruction
+  decomposition (2 chains), rules-removed (n=24), `planner_verifier`
+  (n=24), Translator accuracy (n=16) - is exploratory: single-repeat,
+  no confidence intervals, sized for API cost rather than statistical
+  power. Every exploratory finding above was checked against actual
+  rationale/action text before being trusted (documented per-section as
+  it happened), which substitutes for statistical power on the specific
+  claim being checked, but does not substitute for it on the question of
+  how the effect size would look at Phase-8 scale. Where this document
+  states an exploratory finding as a "clean" result (e.g. the knife chain
+  in the decomposition experiment, 4/4 systems for 4/4 reasons confirmed
+  by rationale), that confidence is about the mechanism being genuine, not
+  about its magnitude generalizing unchanged to a larger sample.
+- **The reprompting-loop limitation's 0/600 incidence is an absence of
+  evidence, not evidence of absence** - stated explicitly above and
+  repeated here because it is the limitation most likely to be
+  misread as a clean bill of health if skimmed.
+- **Every hazard modeled in this project is one this system's fixed
+  ontology was built to express.** The "Deviations from the original
+  proposal" section below records a related, structural boundary: harder
+  categories requiring facts outside any formal ontology (resident-specific
+  health profiles, stale standing rules, third-party harm) were considered
+  and deliberately not added, because LTL verification cannot help with
+  them regardless of dataset design - the same conclusion this Discussion
+  reaches empirically for temporal misdirection is true *by construction*
+  for anything the ontology cannot represent. Both are instances of the
+  same underlying limit: verification is only as capable as what it has
+  been given to check.
+- **The environment is symbolic, not embodied.** The verifier's soundness
+  guarantee is relative to the deterministic `transition()` function that
+  both "planning" and "verification" share - there is no separate
+  execution layer with retries or physical drift for a real or
+  photorealistically-simulated robot to diverge from. Extending this
+  research to an embodied platform would require interleaved/runtime
+  monitoring, not the offline pre-execution checking implemented and
+  validated here (see the answer to the external review's point 1,
+  reflected in this document only as this note - not yet written up
+  as its own section).
+
 ## Dataset design
 
 See [../data/dataset_schema.md](../data/dataset_schema.md) for the
