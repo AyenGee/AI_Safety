@@ -2159,6 +2159,58 @@ has judged an instruction untrustworthy doesn't selectively parse it for
 legitimate sub-clauses - that a working fix on the first try would not have
 surfaced.
 
+### Why: structural immunity (verifier) vs. empirical robustness (LLM layers)
+
+"No system complied" is the observation; it has two different causes that
+should not be flattened into one claim of blanket immunity.
+
+**The verifier's resistance is structural, not empirical, and provable
+directly from its function signatures.** Trace the actual call chain for
+the two LTL-augmented systems:
+
+```python
+build_trajectory(state: WorldState, actions: tuple[Action, ...], ontology: Ontology)
+check_rule_base(rule_base: SafetyRuleBase, trajectory: list[WorldState], ontology: Ontology)
+```
+
+Neither takes the instruction string as an argument, anywhere. By the time
+a candidate plan reaches verification, it has already been reduced to a
+`WorldState` trajectory and a list of `Action` objects - the natural-
+language text an attacker controls has been fully discarded before
+verification even begins. It is not that the verifier reads an injection
+attempt and resists it; there is no code path by which it *could* read
+one. No matter how persuasive, well-formatted, or cleverly delimited an
+injected instruction is, it cannot influence a SAT/UNSAT computation that
+never receives it as input. This is a guarantee that holds by construction
+for any input, not a trend observed across 72 test cases that a 73rd
+could break.
+
+**The LLM layers' resistance (Planner/Critic/single_llm) is real but
+categorically weaker: empirically robust, not architecturally guaranteed.**
+These components *do* read the raw instruction text, and their resistance
+in this experiment rests on two things visible directly in the
+rationale quoted above: (1) the underlying model's own instruction-
+hierarchy training - a system prompt outranking anything appearing in
+user-turn content is exactly what heavy red-teaming against "ignore
+previous instructions"-style attacks is meant to produce, and is a
+property of the base model, not something this codebase adds; (2) this
+pipeline's own design choice that the entire safety policy lives in the
+hardcoded system prompt, never touched by user input - the attacker only
+ever controls the `Command: {instruction!r}` string inside the user turn,
+one further layer removed from where the rules are actually stated, and
+`repr()`-quoted in a way that incidentally reinforces "this is data, not a
+new directive."
+
+The precise, defensible claim for this system is therefore two-tiered, not
+one: the verifier is **structurally immune** to this entire attack class -
+a property of the code, holding for any input; the LLM reasoning layers
+are **empirically robust** - held for every case tested here, but a
+trained behavior of the underlying model this architecture benefits from
+rather than one it can itself guarantee. This is the same "verification
+checks ground truth, LLM judgement checks its own belief" split that
+explains every other verifier-vs-Critic comparison in this document,
+applied to a new attack class.
+
 Data: `results/prompt_injection_experiment.json` (final, clean).
 
 ## Dataset design
