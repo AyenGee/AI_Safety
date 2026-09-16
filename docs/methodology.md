@@ -1833,6 +1833,34 @@ without formal verification. Every experiment in this document bears on
 this claim somewhere; nothing so far has stepped back and answered it using
 all of them together. This section does that.
 
+**Why the systems are laid out as a 2x2 in the first place.** Baseline A
+(`single_llm`) is vulnerable by construction to a specific failure mode:
+one model call interprets an instruction *and* judges its own
+interpretation's safety in the same pass, with no structural moment where
+it has to adopt an adversarial stance toward its own output - it is
+optimizing for a coherent, helpful completion, and safety-checking is just
+one more thing bundled into that same completion rather than a dedicated
+concern. Baseline B (`multi_agent`) is the first proposed fix: split
+"propose" from "critique" into two independent LLM calls, so the Critic's
+entire job is finding problems rather than completing a task. `+LTL` is
+the *second*, more rigorous version of exactly the same fix applied one
+level up: instead of a second LLM opinion (still fallible, still a belief
+about the world rather than a check against it), a deterministic verifier
+checks the *actual resulting state* a plan would produce. The whole
+project is therefore two nested instances of one question - does giving a
+system an independent check on itself improve safety - answered at two
+different levels of rigor: an LLM-level check (Baseline A -> B) and a
+formal, ground-truth-level check (Baseline -> `+LTL`). Phase 8 found the
+first layer did essentially all the measurable work and the second added
+almost nothing (below); every experiment after Phase 8 is really an
+investigation into *when* that second, more rigorous layer of review
+earns its keep - and the instruction-decomposition/memory-stripped
+experiments are where it does, because they specifically construct the one
+hazard type a formal ground-truth check is suited to catch and an LLM's
+own belief about the world, however independently reviewed, structurally
+is not: one hidden entirely from the reasoning layer's memory, visible only
+in tracked state.
+
 ### The headline answer is not what the framing implies
 
 Reading Phase 8's pooled metrics precisely (`results/20260908_085406_corrected/metrics_summary.json`):
