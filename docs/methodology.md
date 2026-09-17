@@ -500,8 +500,9 @@ metrics/plots to an uninterrupted run over the same data.
 
 ## Phase 8 results and post-hoc corrections
 
-The full evaluation (200 examples x 3 repeats x 7 configurations - 4
-systems + 3 ablations, 4,200 total runs) was executed against the live API.
+The full evaluation (200 examples x 3 repeats = 600 runs per system, x 7
+configurations - 4 systems + 3 ablations - 4,200 total runs) was executed
+against the live API.
 Reviewing the raw output (confusion matrices, rationale text, per-example
 diffs between systems) surfaced two issues that were corrected *after* the
 run, without spending further API budget - both are re-scoring/relabeling
@@ -2084,9 +2085,10 @@ correctly.
 ### Limitations of this evidence base
 
 - **Three tiers of statistical confidence are mixed together above,
-  deliberately, and they are not all equally weak.** Phase 8 (200 examples
-  x 3 repeats, confidence intervals, McNemar/ANOVA-or-Kruskal-Wallis) is
-  confirmatory - the only tier with repeat-based variance estimates. The
+  deliberately, and they are not all equally weak.** Phase 8 (600 runs per
+  system - 200 examples x 3 repeats - confidence intervals,
+  McNemar/ANOVA-or-Kruskal-Wallis) is confirmatory - the only tier with
+  repeat-based variance estimates. The
   large-scale generalization run (100 instructions across 5 object
   families, single-repeat) sits in a middle tier: no confidence intervals
   or significance test, but a single-shot sample large enough, and effect
