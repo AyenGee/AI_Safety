@@ -41,7 +41,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import dataclasses
 import json
 import re
@@ -54,16 +53,9 @@ from intent_filter.config import load_config  # noqa: E402
 from intent_filter.dataset import load_dataset  # noqa: E402
 from intent_filter.environment import load_safety_rules  # noqa: E402
 from intent_filter.evaluation import (  # noqa: E402
-    build_latency_comparison,
-    build_pairwise_mcnemar,
-    build_system_report,
-    build_unsafety_breakdown_report,
     load_raw_results,
-    plot_confusion_matrices,
-    plot_latency_breakdown,
-    plot_recall_frr_tradeoff,
-    plot_unsafety_type_breakdown,
     record_to_json_line,
+    write_full_report,
 )
 
 # Critic-based systems where the mislabeled-refusal bug can occur.
@@ -148,68 +140,15 @@ def main() -> int:
     print(f"  Prediction-label corrections applied (mislabeled refusal -> Reject): {n_bug_corrected}")
     print(f"  Records whose category/gold_label changed (dataset correction): {n_label_corrected}")
 
-    reports = {
-        system: build_system_report(system, rows, config.evaluation.confidence_level)
-        for system, rows in records_by_system.items()
-    }
-    mcnemar_results = build_pairwise_mcnemar(records_by_system)
-    latency_comparison = build_latency_comparison(records_by_system)
-    unsafety_breakdown = build_unsafety_breakdown_report(records_by_system, rule_base, by="category")
-    unsafety_breakdown_by_rule = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
-
     output_dir = Path(args.output)
-    plots_dir = output_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(output_dir / "raw_results.jsonl", "w", encoding="utf-8") as f:
         for r in corrected_records:
             f.write(record_to_json_line(r) + "\n")
 
-    with open(output_dir / "metrics_summary.json", "w", encoding="utf-8") as f:
-        json.dump({s: dataclasses.asdict(r) for s, r in reports.items()}, f, indent=2, default=str)
-
-    with open(output_dir / "metrics_summary.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["system", "metric", "mean", "ci_lower", "ci_upper", "n_repeats"])
-        for system, report in reports.items():
-            for metric_name, ci in report.metric_cis.items():
-                writer.writerow([system, metric_name, ci.mean, ci.lower, ci.upper, ci.n])
-
-    with open(output_dir / "statistical_tests.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "mcnemar_pairwise": [dataclasses.asdict(m) for m in mcnemar_results],
-                "latency_comparison": dataclasses.asdict(latency_comparison),
-            },
-            f,
-            indent=2,
-            default=str,
-        )
-
-    with open(output_dir / "unsafety_breakdown.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "by_category": {
-                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
-                    for s, stats in unsafety_breakdown.items()
-                },
-                "by_rule": {
-                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
-                    for s, stats in unsafety_breakdown_by_rule.items()
-                },
-            },
-            f,
-            indent=2,
-            default=str,
-        )
-
-    with open(output_dir / "unsafety_breakdown.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["system", "granularity", "unsafety_type", "n_examples", "n_caught", "catch_rate"])
-        for granularity, breakdown in (("category", unsafety_breakdown), ("rule", unsafety_breakdown_by_rule)):
-            for system, stats in breakdown.items():
-                for key, s in stats.items():
-                    writer.writerow([system, granularity, key, s.n_examples, s.n_caught, s.catch_rate])
+    full_report = write_full_report(records_by_system, rule_base, config.evaluation.confidence_level, output_dir)
+    reports = full_report.reports
 
     with open(output_dir / "correction_notes.json", "w", encoding="utf-8") as f:
         json.dump(
@@ -225,17 +164,6 @@ def main() -> int:
             f,
             indent=2,
         )
-
-    pooled_metrics = {s: r.pooled_metrics for s, r in reports.items()}
-    plot_recall_frr_tradeoff(pooled_metrics, plots_dir / "recall_frr_tradeoff.png")
-    plot_latency_breakdown(records_by_system, plots_dir / "latency_breakdown.png")
-    plot_confusion_matrices(records_by_system, plots_dir / "confusion_matrices.png")
-    plot_unsafety_type_breakdown(unsafety_breakdown, plots_dir / "unsafety_type_breakdown.png")
-    plot_unsafety_type_breakdown(
-        unsafety_breakdown_by_rule,
-        plots_dir / "unsafety_type_breakdown_by_rule.png",
-        title="Catch rate by individual rule, per system",
-    )
 
     print(f"\nCorrected report written to {output_dir}")
     print(f"\n{'System':<20}{'Recall':>10}{'Precision':>12}{'Specificity':>13}{'F1':>8}{'FRR':>8}{'ClarifyAcc':>12}")

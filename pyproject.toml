@@ -11,13 +11,16 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "George Ayensu" }]
 
-# Later phases add: pandas (Phase 7, dataset scaling review tooling).
+# Ollama (the default LLM backend, run locally on the cluster - see
+# cluster/setup.md) needs no extra dependency: OllamaLLMClient talks to it
+# over stdlib urllib. anthropic is kept as an optional extra only so the
+# historical (already-reported) Anthropic-backed results stay explainable/
+# reproducible later - nothing in this project's default path needs it.
 dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.5",
     "pydantic-settings>=2.1",
     "flloat>=0.3.0",
-    "anthropic>=0.40.0",
     "scipy>=1.11",
     "statsmodels>=0.14",
     "matplotlib>=3.8",
@@ -26,6 +29,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+]
+anthropic = [
+    "anthropic>=0.40.0",
 ]
 
 [tool.setuptools.packages.find]

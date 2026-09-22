@@ -1,89 +1,114 @@
 #!/usr/bin/env python
-"""Does the model generation behind Planner/Translator/single_llm change
-the safety findings? Re-runs a small, stratified subset of the existing
-200-example dataset (legitimate/unsafe/misdirected only, matching this
-research's safety scope - no ambiguous) through all 4 core systems with
-claude-sonnet-4-5 (one full generation older than claude-sonnet-5) in place
-of claude-sonnet-5 for the Planner/Translator/single_llm roles. The Critic
-stays on claude-haiku-4-5 unchanged - there's no good "older Haiku" option
-currently active (claude-haiku-3 is deprecated with an April 2026 retirement
-date already passed as of this writing; everything before it is retired).
+"""Does the model behind Planner/Translator/single_llm change the safety
+findings? Compares the current default (gemma4:e4b) against the smaller,
+faster alternative (qwen3.5:4b) for the Planner/Translator/single_llm
+roles, live on both sides - re-runs a stratified subset of the dataset
+through all 4 core systems with each model config.
 
-Compares each live older-model prediction directly against the existing,
-already-collected claude-sonnet-5 prediction for the exact same example at
-repeat_index=0 (results/20260908_085406_corrected/raw_results.jsonl) - no
-need to re-run the current-model side, it's already on disk.
+Originally this compared a live run against an archived claude-sonnet-4-5
+vs. claude-sonnet-5 (one generation apart) result set - not meaningful once
+the project moved off Anthropic models entirely (see
+docs/methodology.md "Scaling to open-weight models"). Re-scoped to the
+model-capability axis actually available now: gemma4:e4b (9.6GB, the
+larger of the two Ollama models) vs. qwen3.5:4b (3.4GB) for these 3 roles.
+The Critic stays on config.models.critic (qwen3.5:4b) unchanged in both
+arms, matching the original design's "isolate one role's model choice."
 
-16-example sample: the 4 known-interesting cases from prior experiments
-(legit_007/legit_059/legit_008 - property hallucination; misd_029 - the
-temporal-inconsistency pattern) plus 4 deterministically-sampled additional
-examples per category (legitimate/unsafe/misdirected), for a small, cheap,
-run-once (no repeats) comparison.
+Scoped to legitimate/unsafe/misdirected only (no ambiguous), matching this
+research's safety focus. Scaled to ~100 examples (up from 16) in the
+open-weight-model scale-up round, run-once (no repeats) - both arms are
+live LLM calls now, so this is twice the call volume of a single-arm
+100-example run.
 
 Usage:
     python scripts/experiment_older_model.py
+    python scripts/experiment_older_model.py --shard-index 0 --shard-count 5
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from intent_filter.agents.client import AnthropicLLMClient  # noqa: E402
-from intent_filter.config import ModelsConfig, load_config, load_secrets  # noqa: E402
+from intent_filter.agents.client import OllamaLLMClient  # noqa: E402
+from intent_filter.config import ModelsConfig, load_config  # noqa: E402
 from intent_filter.decision import SystemContext  # noqa: E402
 from intent_filter.dataset import load_dataset  # noqa: E402
 from intent_filter.environment import load_ontology, load_safety_rules  # noqa: E402
+from intent_filter.sharding import shard_slice  # noqa: E402
 from intent_filter.systems import SYSTEMS  # noqa: E402
 
-SAMPLE_IDS = [
-    # known-interesting cases from prior experiments
-    "legit_007", "legit_059", "legit_008", "misd_029",
-    # stratified additional sample, legitimate/unsafe/misdirected only (no ambiguous)
-    "legit_001", "legit_014", "legit_035", "legit_057",
-    "unsafe_001", "unsafe_021", "unsafe_041", "unsafe_062",
-    "misd_001", "misd_013", "misd_025", "misd_037",
-]
+# known-interesting cases from prior experiments, always included
+SEED_IDS = ["legit_007", "legit_059", "legit_008", "misd_029"]
+CATEGORIES = ("legitimate", "unsafe", "misdirected")
+TARGET_TOTAL = 100
 
-OLDER_MODEL = "claude-sonnet-4-5"
-CURRENT_RESULTS = Path("results/20260908_085406_corrected/raw_results.jsonl")
+CURRENT_MODEL = "gemma4:e4b"
+LEANER_MODEL = "qwen3.5:4b"
 SYSTEM_NAMES = ["single_llm", "multi_agent", "single_llm_ltl", "multi_agent_ltl"]
 
 
-def load_current_predictions() -> dict:
-    """(system, example_id) -> RunRecord dict, repeat_index == 0 only."""
-    preds = {}
-    with open(CURRENT_RESULTS, encoding="utf-8") as f:
-        for line in f:
-            r = json.loads(line)
-            if r["repeat_index"] == 0:
-                preds[(r["system"], r["example_id"])] = r
-    return preds
+def build_sample(all_examples: list) -> list[str]:
+    sample = list(SEED_IDS)
+    seen = set(sample)
+    by_category: dict[str, list[str]] = {}
+    for e in sorted(all_examples, key=lambda e: e.id):
+        if e.category in CATEGORIES and e.id not in seen:
+            by_category.setdefault(e.category, []).append(e.id)
+
+    need = TARGET_TOTAL - len(sample)
+    while need > 0 and any(by_category.values()):
+        for category in CATEGORIES:
+            ids = by_category.get(category, [])
+            if not ids or need <= 0:
+                continue
+            sample.append(ids.pop(0))
+            seen.add(sample[-1])
+            need -= 1
+    return sample
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--shard-index", type=int, default=None)
+    parser.add_argument("--shard-count", type=int, default=None)
+    return parser
 
 
 def main() -> int:
+    args = build_arg_parser().parse_args()
     config = load_config()
-    secrets = load_secrets()
     ontology = load_ontology(config.environment.ontology_path)
     rule_base = load_safety_rules(config.environment.safety_rules_path)
-    examples_by_id = {e.id: e for e in load_dataset(config.dataset.path)}
-    client = AnthropicLLMClient(api_key=secrets.anthropic_api_key)
-    current_preds = load_current_predictions()
+    all_examples = load_dataset(config.dataset.path)
+    examples_by_id = {e.id: e for e in all_examples}
+    client = OllamaLLMClient(base_url=config.ollama.base_url, timeout=config.ollama.timeout, max_retries=config.ollama.max_retries)
 
-    older_models = ModelsConfig(
-        planner=OLDER_MODEL,
-        critic=config.models.critic,  # unchanged - claude-haiku-4-5
-        translator=OLDER_MODEL,
-        single_llm=OLDER_MODEL,
+    sample_ids = build_sample(all_examples)
+    shard_suffix = ""
+    if args.shard_index is not None:
+        sample_ids = shard_slice(sample_ids, args.shard_index, args.shard_count)
+        shard_suffix = f"_shard{args.shard_index}of{args.shard_count}"
+    print(f"Sample size: {len(sample_ids)} instructions, 1 run each per arm.")
+
+    current_models = ModelsConfig(
+        planner=CURRENT_MODEL, critic=config.models.critic, translator=CURRENT_MODEL, single_llm=CURRENT_MODEL,
     )
-    ctx = SystemContext(
-        client=client,
-        models=older_models,
-        ontology=ontology,
-        rule_base=rule_base,
+    leaner_models = ModelsConfig(
+        planner=LEANER_MODEL, critic=config.models.critic, translator=LEANER_MODEL, single_llm=LEANER_MODEL,
+    )
+    ctx_current = SystemContext(
+        client=client, models=current_models, ontology=ontology, rule_base=rule_base,
+        ambiguity_margin=config.agent.ambiguity_margin,
+        max_refinement_attempts=config.agent.max_refinement_attempts,
+        translation_max_retries=config.agent.translation_max_retries,
+    )
+    ctx_leaner = SystemContext(
+        client=client, models=leaner_models, ontology=ontology, rule_base=rule_base,
         ambiguity_margin=config.agent.ambiguity_margin,
         max_refinement_attempts=config.agent.max_refinement_attempts,
         translation_max_retries=config.agent.translation_max_retries,
@@ -92,41 +117,44 @@ def main() -> int:
     results = []
     n_diff = 0
     n_total = 0
-    for ex_id in SAMPLE_IDS:
+    for ex_id in sample_ids:
         example = examples_by_id[ex_id]
         state = example.scene_context.to_world_state(ontology)
         print(f"[{ex_id}] gold={example.gold_label:8s} '{example.instruction_text[:55]}'")
 
         row = {"id": ex_id, "instruction": example.instruction_text, "gold_label": example.gold_label}
         for system_name in SYSTEM_NAMES:
-            current = current_preds.get((system_name, ex_id))
-            current_decision = current["predicted_label"] if current else "n/a"
+            try:
+                current_result = SYSTEMS[system_name](example.instruction_text, state, ctx_current)
+                current_decision = current_result.decision
+            except Exception as exc:  # noqa: BLE001
+                current_decision = f"ERROR:{type(exc).__name__}"
 
             try:
-                result = SYSTEMS[system_name](example.instruction_text, state, ctx)
-                older_decision = result.decision
+                leaner_result = SYSTEMS[system_name](example.instruction_text, state, ctx_leaner)
+                leaner_decision = leaner_result.decision
                 row[system_name] = {
-                    "current_sonnet5": current_decision,
-                    "older_sonnet4_5": older_decision,
-                    "older_rationale": result.rationale,
+                    f"{CURRENT_MODEL}_decision": current_decision,
+                    f"{LEANER_MODEL}_decision": leaner_decision,
+                    f"{LEANER_MODEL}_rationale": leaner_result.rationale,
                 }
             except Exception as exc:  # noqa: BLE001
-                older_decision = f"ERROR:{type(exc).__name__}"
-                row[system_name] = {"current_sonnet5": current_decision, "older_sonnet4_5": older_decision}
+                leaner_decision = f"ERROR:{type(exc).__name__}"
+                row[system_name] = {f"{CURRENT_MODEL}_decision": current_decision, f"{LEANER_MODEL}_decision": leaner_decision}
 
             n_total += 1
-            diff = older_decision != current_decision
+            diff = leaner_decision != current_decision
             if diff:
                 n_diff += 1
-            print(f"    {system_name:16s} current={current_decision:8s} older={older_decision:8s}" +
+            print(f"    {system_name:16s} {CURRENT_MODEL}={current_decision:8s} {LEANER_MODEL}={leaner_decision:8s}" +
                   ("  <-- DIFFERENT" if diff else ""))
         results.append(row)
         print()
 
     print(f"=== Summary: {n_diff}/{n_total} (system, example) pairs differ between "
-          f"claude-sonnet-5 and claude-sonnet-4-5 ===")
+          f"{CURRENT_MODEL} and {LEANER_MODEL} ===")
 
-    output_path = Path("results") / "older_model_experiment.json"
+    output_path = Path("results") / f"older_model_experiment{shard_suffix}.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump({"summary": {"n_diff": n_diff, "n_total": n_total}, "results": results}, f, indent=2)

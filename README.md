@@ -82,13 +82,21 @@ python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -e ".[dev]"
 copy config\config.example.yaml config\config.yaml
-copy .env.example .env        # then fill in ANTHROPIC_API_KEY (needed from Phase 4 onward)
 ```
 
-`config/config.yaml` and `.env` are gitignored - never commit API keys.
-`config/config.yaml` controls per-role model choice, dataset path, evaluation
-repeat count, and ablation flags; if absent, the loader falls back to
-`config/config.example.yaml`.
+No API key is needed by default: the LLM-backed agents (Phase 4 onward)
+talk to a local Ollama server (`OllamaLLMClient`) running two open-weight
+models (Qwen3.5, Gemma4) - see `cluster/setup.md` for the Wits `mscluster`
+HPC setup this project runs against. `AnthropicLLMClient` is still in the
+codebase (install the optional `.[anthropic]` extra and set
+`ANTHROPIC_API_KEY` via `.env.example` to use it) only to keep the
+already-reported early-phase results reproducible; nothing runs against it
+by default anymore.
+
+`config/config.yaml` is gitignored - never commit local paths there.
+It controls per-role model choice (Ollama model tags), dataset path,
+evaluation repeat count, and ablation flags; if absent, the loader falls
+back to `config/config.example.yaml`.
 
 No system-level dependencies are required. The LTL verifier uses `flloat`
 (pure-Python LTLf), installed automatically via `pip install -e ".[dev]"` -

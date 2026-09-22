@@ -23,6 +23,10 @@ htmlcov/
 results/*
 !results/.gitkeep
 
+# Cluster job logs (regenerated per Slurm submission, not source)
+cluster/logs/*
+!cluster/logs/.gitkeep
+
 # Editor / OS
 .vscode/
 .idea/

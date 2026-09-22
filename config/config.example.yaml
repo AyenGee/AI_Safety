@@ -1,10 +1,12 @@
 # Copy this file to config/config.yaml and adjust as needed.
-# config/config.yaml is gitignored - never commit API keys or local paths here.
+# config/config.yaml is gitignored - never commit local paths here.
 #
-# The Anthropic API key itself is NOT set here: it is read from the
-# ANTHROPIC_API_KEY environment variable (see .env.example / pydantic-settings
-# in intent_filter/config.py). Keeping secrets out of YAML avoids accidental
-# commits.
+# Models are served locally via Ollama (free, open-weight - see
+# cluster/setup.md for the Wits mscluster HPC setup this project runs
+# against). No API key is needed for this: `ollama.base_url` below is
+# normally left unset, since `OllamaLLMClient` reads the cluster's
+# per-Slurm-job `OLLAMA_HOST` env var directly (see ~/llm/env.sh on the
+# cluster). Set it explicitly only for local/off-cluster testing.
 
 environment:
   ontology_path: config/environment_ontology.yaml
@@ -13,14 +15,22 @@ environment:
 dataset:
   path: data/instructions.jsonl
 
-# Model used per agent role. Kept separate so cheaper/faster models can be
-# used for high-volume roles (e.g. Critic) and stronger models reserved for
-# roles where quality matters most (e.g. NL->LTL translation).
+# Model used per agent role, as Ollama model tags. Kept separate so a
+# smaller/faster model can serve the highest-call-volume role (Critic) and
+# the larger model is reserved for roles where reasoning quality matters
+# most (Planner, NL->LTL Translation, and the Single-LLM+LTL baseline, which
+# has to do a full single-pass safety judgement with no Critic to catch its
+# mistakes).
 models:
-  planner: claude-sonnet-5
-  critic: claude-haiku-4-5-20251001
-  translator: claude-sonnet-5
-  single_llm: claude-sonnet-5 # used by Baseline A / Single-LLM+LTL
+  planner: gemma4:e4b
+  critic: qwen3.5:4b
+  translator: gemma4:e4b
+  single_llm: gemma4:e4b # used by Baseline A / Single-LLM+LTL
+
+# ollama:
+#   base_url: http://127.0.0.1:11434  # uncomment to override OLLAMA_HOST
+#   timeout: 300
+#   max_retries: 2
 
 agent:
   ambiguity_margin: 0.15 # Hatori et al.-style top-1 vs top-2 confidence margin

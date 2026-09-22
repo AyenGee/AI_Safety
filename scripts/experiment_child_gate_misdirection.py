@@ -38,8 +38,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from intent_filter.agents.client import AnthropicLLMClient  # noqa: E402
-from intent_filter.config import load_config, load_secrets  # noqa: E402
+from intent_filter.agents.client import OllamaLLMClient  # noqa: E402
+from intent_filter.config import load_config  # noqa: E402
 from intent_filter.decision import SystemContext  # noqa: E402
 from intent_filter.environment import initial_state, load_ontology, load_safety_rules  # noqa: E402
 from intent_filter.environment.rules import SafetyRuleBase  # noqa: E402
@@ -66,12 +66,11 @@ SYSTEM_NAMES = ["single_llm", "multi_agent", "single_llm_ltl", "multi_agent_ltl"
 
 def main() -> int:
     config = load_config()
-    secrets = load_secrets()
     ontology = load_ontology(config.environment.ontology_path)
     base8 = load_safety_rules(config.environment.safety_rules_path)
     extra = load_safety_rules("config/safety_rules_child_gate_experiment.yaml")
     rule_base = SafetyRuleBase(rules=base8.rules + extra.rules)
-    client = AnthropicLLMClient(api_key=secrets.anthropic_api_key)
+    client = OllamaLLMClient(base_url=config.ollama.base_url, timeout=config.ollama.timeout, max_retries=config.ollama.max_retries)
 
     ctx = SystemContext(
         client=client,

@@ -20,6 +20,13 @@ Usage:
     # Already-completed (system, example, repeat) combos are skipped.
     python scripts/run_evaluation.py --resume results/20260904_120000
 
+    # Cluster: split the dataset across 20 parallel Slurm array tasks (see
+    # cluster/run_experiment.slurm) instead of running it on one node:
+    python scripts/run_evaluation.py --shard-index $SLURM_ARRAY_TASK_ID --shard-count 20
+    # Each shard writes its own run dir and skips full-dataset aggregation
+    # (a shard alone isn't representative); once every shard finishes:
+    python scripts/merge_shards.py --shard-dirs results/2026*_shard*of20 --output results/merged
+
 Every individual run is written to raw_results.jsonl the moment it completes
 (not batched up for the end), so an interrupted run never loses more than the
 one call that was in flight - see --resume above to continue it.
@@ -32,8 +39,6 @@ metrics_summary.json/.csv (per-system metrics with CIs), statistical_tests.json
 from __future__ import annotations
 
 import argparse
-import csv
-import dataclasses
 import json
 import os
 import sys
@@ -42,24 +47,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from intent_filter.agents.client import AnthropicLLMClient  # noqa: E402
-from intent_filter.config import load_config, load_secrets  # noqa: E402
+from intent_filter.agents.client import OllamaLLMClient  # noqa: E402
+from intent_filter.config import load_config  # noqa: E402
 from intent_filter.dataset import load_dataset  # noqa: E402
 from intent_filter.decision import SystemContext  # noqa: E402
 from intent_filter.environment import load_ontology, load_safety_rules  # noqa: E402
 from intent_filter.evaluation import (  # noqa: E402
-    build_latency_comparison,
-    build_pairwise_mcnemar,
-    build_system_report,
-    build_unsafety_breakdown_report,
     load_raw_results,
-    plot_confusion_matrices,
-    plot_latency_breakdown,
-    plot_recall_frr_tradeoff,
-    plot_unsafety_type_breakdown,
     record_to_json_line,
     run_evaluation,
+    write_full_report,
 )
+from intent_filter.sharding import shard_slice  # noqa: E402
 from intent_filter.systems import ABLATIONS, SYSTEMS  # noqa: E402
 
 
@@ -78,6 +77,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "Re-run with the same other flags (--limit/--repeats/--systems/--no-ablations) you used "
         "originally; already-completed runs found in its raw_results.jsonl are skipped.",
     )
+    parser.add_argument(
+        "--shard-index", type=int, default=None,
+        help="This shard's index (0-based) when splitting the dataset across several parallel "
+        "Slurm jobs - see cluster/run_experiment.slurm. Requires --shard-count. Each shard gets "
+        "a round-robin slice (intent_filter.sharding.shard_slice) and writes its own run dir; "
+        "merge with scripts/merge_shards.py once every shard finishes.",
+    )
+    parser.add_argument("--shard-count", type=int, default=None, help="Total number of shards - see --shard-index.")
     return parser
 
 
@@ -92,14 +99,19 @@ def main() -> int:
     args = build_arg_parser().parse_args()
 
     config = load_config(args.config)
-    secrets = load_secrets()
     ontology = load_ontology(config.environment.ontology_path)
     rule_base = load_safety_rules(config.environment.safety_rules_path)
     examples = load_dataset(config.dataset.path)
     if args.limit:
         examples = examples[: args.limit]
+    sharded = args.shard_index is not None or args.shard_count is not None
+    if sharded:
+        if args.shard_index is None or args.shard_count is None:
+            print("--shard-index and --shard-count must be given together.", file=sys.stderr)
+            return 1
+        examples = shard_slice(examples, args.shard_index, args.shard_count)
 
-    client = AnthropicLLMClient(api_key=secrets.anthropic_api_key)
+    client = OllamaLLMClient(base_url=config.ollama.base_url, timeout=config.ollama.timeout, max_retries=config.ollama.max_retries)
     ctx = SystemContext(
         client=client,
         models=config.models,
@@ -131,13 +143,19 @@ def main() -> int:
         print(f"Resuming {run_dir}: {len(skip)} run(s) already completed, will be skipped.")
     else:
         results_root = Path(args.output_dir or config.evaluation.results_dir)
-        run_dir = results_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if sharded:
+            # Shard index is included unconditionally (not just appended to a
+            # shared timestamp) so two array tasks starting in the same
+            # second never collide on run_dir, even without microsecond
+            # precision - see cluster/run_experiment.slurm.
+            run_name += f"_shard{args.shard_index}of{args.shard_count}"
+        run_dir = results_root / run_name
         raw_results_path = run_dir / "raw_results.jsonl"
         existing_records = []
         skip = set()
 
-    plots_dir = run_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     total_runs = len(systems_to_run) * len(examples) * repeats
     print(f"Evaluating {len(systems_to_run)} system(s) over {len(examples)} example(s), "
@@ -177,125 +195,70 @@ def main() -> int:
     # together across a crash and a --resume.
     records = existing_records + new_records
 
-    # --- Aggregate ---------------------------------------------------------------
+    # --- Aggregate + save (metrics/stats/unsafety-breakdown/plots) ---------------
     records_by_system: dict[str, list] = {}
     for r in records:
         records_by_system.setdefault(r.system, []).append(r)
 
-    reports = {
-        system: build_system_report(system, rows, config.evaluation.confidence_level)
-        for system, rows in records_by_system.items()
-    }
-    mcnemar_results = build_pairwise_mcnemar(records_by_system)
-    latency_comparison = build_latency_comparison(records_by_system)
-    unsafety_breakdown = build_unsafety_breakdown_report(records_by_system, rule_base, by="category")
-    unsafety_breakdown_by_rule = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
+    if sharded:
+        # A single shard only has a slice of the dataset - per-metric CIs,
+        # McNemar, and the unsafety-type breakdown would all be computed
+        # over a non-representative subset if generated here. Skip the full
+        # report per shard; run scripts/merge_shards.py once every shard
+        # finishes, which concatenates every shard's raw_results.jsonl and
+        # produces one report over the complete dataset.
+        print(f"\nShard {args.shard_index}/{args.shard_count} done: "
+              f"{len(records)} record(s) written to {raw_results_path}.")
+        print("Run scripts/merge_shards.py once every shard has finished to produce the full report.")
+    else:
+        full_report = write_full_report(records_by_system, rule_base, config.evaluation.confidence_level, run_dir)
+        reports = full_report.reports
 
-    # --- Save ---------------------------------------------------------------------
-    # run_dir, plots_dir, and raw_results.jsonl were already created/written
-    # above (incrementally, during the run itself).
+        with open(run_dir / "config_used.json", "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "config": config.model_dump(mode="json"),
+                    "repeats": repeats,
+                    "limit": args.limit,
+                    "systems": list(systems_to_run),
+                },
+                f,
+                indent=2,
+                default=str,
+            )
 
-    with open(run_dir / "metrics_summary.json", "w", encoding="utf-8") as f:
-        json.dump({s: dataclasses.asdict(r) for s, r in reports.items()}, f, indent=2, default=str)
-
-    with open(run_dir / "metrics_summary.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["system", "metric", "mean", "ci_lower", "ci_upper", "n_repeats"])
+        # --- Report to stdout -------------------------------------------------------
+        print(f"\nResults written to {run_dir}")
+        print(f"\n{'System':<20}{'Recall':>10}{'Precision':>12}{'Specificity':>13}{'F1':>8}{'FRR':>8}{'ClarifyAcc':>12}")
         for system, report in reports.items():
-            for metric_name, ci in report.metric_cis.items():
-                writer.writerow([system, metric_name, ci.mean, ci.lower, ci.upper, ci.n])
+            def fmt(name: str) -> str:
+                ci = report.metric_cis.get(name)
+                return f"{ci.mean:.2f}" if ci else "n/a"
 
-    with open(run_dir / "statistical_tests.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "mcnemar_pairwise": [dataclasses.asdict(m) for m in mcnemar_results],
-                "latency_comparison": dataclasses.asdict(latency_comparison),
-            },
-            f,
-            indent=2,
-            default=str,
-        )
+            print(
+                f"{system:<20}{fmt('recall'):>10}{fmt('precision'):>12}{fmt('specificity'):>13}"
+                f"{fmt('f1'):>8}{fmt('false_rejection_rate'):>8}{fmt('clarification_accuracy'):>12}"
+            )
 
-    with open(run_dir / "unsafety_breakdown.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "by_category": {
-                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
-                    for s, stats in unsafety_breakdown.items()
-                },
-                "by_rule": {
-                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
-                    for s, stats in unsafety_breakdown_by_rule.items()
-                },
-            },
-            f,
-            indent=2,
-            default=str,
-        )
+        print(f"\n{'System':<20}{'Mean (s)':>10}{'p50 (s)':>10}{'p95 (s)':>10}")
+        for system, report in reports.items():
+            lat = report.latency
+            if lat:
+                print(f"{system:<20}{lat.total.mean:>10.2f}{lat.total.p50:>10.2f}{lat.total.p95:>10.2f}")
 
-    with open(run_dir / "unsafety_breakdown.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["system", "granularity", "unsafety_type", "n_examples", "n_caught", "catch_rate"])
-        for granularity, breakdown in (("category", unsafety_breakdown), ("rule", unsafety_breakdown_by_rule)):
-            for system, stats in breakdown.items():
-                for key, s in stats.items():
-                    writer.writerow([system, granularity, key, s.n_examples, s.n_caught, s.catch_rate])
+        lc = full_report.latency_comparison
+        print(f"\nLatency comparison: {lc.test_used} (statistic={lc.statistic:.3f}, p={lc.p_value:.4f})")
 
-    with open(run_dir / "config_used.json", "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "config": config.model_dump(mode="json"),
-                "repeats": repeats,
-                "limit": args.limit,
-                "systems": list(systems_to_run),
-            },
-            f,
-            indent=2,
-            default=str,
-        )
-
-    pooled_metrics = {s: r.pooled_metrics for s, r in reports.items()}
-    plot_recall_frr_tradeoff(pooled_metrics, plots_dir / "recall_frr_tradeoff.png")
-    plot_latency_breakdown(records_by_system, plots_dir / "latency_breakdown.png")
-    plot_confusion_matrices(records_by_system, plots_dir / "confusion_matrices.png")
-    plot_unsafety_type_breakdown(unsafety_breakdown, plots_dir / "unsafety_type_breakdown.png")
-    plot_unsafety_type_breakdown(
-        unsafety_breakdown_by_rule,
-        plots_dir / "unsafety_type_breakdown_by_rule.png",
-        title="Catch rate by individual rule, per system",
-    )
-
-    # --- Report to stdout -----------------------------------------------------------
-    print(f"\nResults written to {run_dir}")
-    print(f"\n{'System':<20}{'Recall':>10}{'Precision':>12}{'Specificity':>13}{'F1':>8}{'FRR':>8}{'ClarifyAcc':>12}")
-    for system, report in reports.items():
-        def fmt(name: str) -> str:
-            ci = report.metric_cis.get(name)
-            return f"{ci.mean:.2f}" if ci else "n/a"
-
-        print(
-            f"{system:<20}{fmt('recall'):>10}{fmt('precision'):>12}{fmt('specificity'):>13}"
-            f"{fmt('f1'):>8}{fmt('false_rejection_rate'):>8}{fmt('clarification_accuracy'):>12}"
-        )
-
-    print(f"\n{'System':<20}{'Mean (s)':>10}{'p50 (s)':>10}{'p95 (s)':>10}")
-    for system, report in reports.items():
-        lat = report.latency
-        if lat:
-            print(f"{system:<20}{lat.total.mean:>10.2f}{lat.total.p50:>10.2f}{lat.total.p95:>10.2f}")
-
-    print(f"\nLatency comparison: {latency_comparison.test_used} "
-          f"(statistic={latency_comparison.statistic:.3f}, p={latency_comparison.p_value:.4f})")
-
-    unsafety_types = sorted({t for stats in unsafety_breakdown.values() for t in stats})
-    if unsafety_types:
-        header = f"\n{'System':<20}" + "".join(f"{t:>16}" for t in unsafety_types)
-        print(header)
-        for system, stats in unsafety_breakdown.items():
-            row = f"{system:<20}"
-            for t in unsafety_types:
-                row += f"{stats[t].catch_rate:>15.0%} " if t in stats else f"{'n/a':>16}"
-            print(row)
+        unsafety_breakdown = full_report.unsafety_breakdown
+        unsafety_types = sorted({t for stats in unsafety_breakdown.values() for t in stats})
+        if unsafety_types:
+            header = f"\n{'System':<20}" + "".join(f"{t:>16}" for t in unsafety_types)
+            print(header)
+            for system, stats in unsafety_breakdown.items():
+                row = f"{system:<20}"
+                for t in unsafety_types:
+                    row += f"{stats[t].catch_rate:>15.0%} " if t in stats else f"{'n/a':>16}"
+                print(row)
 
     return 0
 

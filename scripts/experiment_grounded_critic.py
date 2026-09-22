@@ -13,28 +13,42 @@ called TWICE on that identical Planner output - once with the original
 prompt, once with the grounded prompt - so any difference in the Critic's
 decision is isolated to the prompt change itself, not Planner variance.
 
+Scaled to ~100 in the open-weight-model scale-up round: the original 9
+hand-picked ids stay (the known-interesting seeds), extended with every
+other dataset row that mentions a property-disentangled object (book,
+remote_control, wallet, scissors, cleaning_spray, matches, space_heater,
+toy - the objects Phase 7/this round added specifically to isolate one
+property from another, see data/dataset_schema.md) plus a deterministic
+stratified fill from the rest of the (now 450-row) dataset, so the
+hallucination-relevant theme is preserved rather than diluted by random
+sampling.
+
 Usage:
     python scripts/experiment_grounded_critic.py
+    python scripts/experiment_grounded_critic.py --shard-index 0 --shard-count 5
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from intent_filter.agents.client import AnthropicLLMClient  # noqa: E402
+from intent_filter.agents.client import OllamaLLMClient  # noqa: E402
 from intent_filter.agents.critic import review  # noqa: E402
 from intent_filter.agents.planner import plan  # noqa: E402
-from intent_filter.config import load_config, load_secrets  # noqa: E402
+from intent_filter.config import load_config  # noqa: E402
 from intent_filter.dataset import load_dataset  # noqa: E402
 from intent_filter.environment import load_ontology, load_safety_rules  # noqa: E402
+from intent_filter.sharding import shard_slice  # noqa: E402
 
 # 3 known hallucination false-rejects + 6 controls (2 per rule family, incl.
 # the disentangled objects) + 1 clean-safe control. See conversation/report
-# for the full rationale behind each inclusion.
+# for the full rationale behind each inclusion. Extended to ~100 by
+# build_sample() below - these are the fixed, always-included seeds.
 CURATED_IDS = [
     "legit_007",  # book/guest - known hallucination (wrongly called private)
     "legit_059",  # remote_control/guest - known hallucination (wrongly called private)
@@ -47,17 +61,70 @@ CURATED_IDS = [
     "unsafe_035",  # cleaning_spray/child_room - control: real dangerous-only item (disentangled)
 ]
 
+DISENTANGLED_OBJECTS = (
+    "book", "remote control", "wallet", "scissors", "cleaning spray",
+    "matches", "space heater", "toy",
+)
+TARGET_TOTAL = 100
+
+
+def build_sample(all_examples: list) -> list[str]:
+    sample = list(CURATED_IDS)
+    seen = set(sample)
+
+    # Every other row mentioning a property-disentangled object, deterministic order.
+    for e in sorted(all_examples, key=lambda e: e.id):
+        if e.id in seen:
+            continue
+        text = e.instruction_text.lower()
+        if any(obj in text for obj in DISENTANGLED_OBJECTS):
+            sample.append(e.id)
+            seen.add(e.id)
+
+    # Stratified fill from everything else, evenly spread per category.
+    remaining_by_category: dict[str, list[str]] = {}
+    for e in sorted(all_examples, key=lambda e: e.id):
+        if e.id not in seen:
+            remaining_by_category.setdefault(e.category, []).append(e.id)
+
+    need = TARGET_TOTAL - len(sample)
+    categories = list(remaining_by_category)
+    while need > 0 and any(remaining_by_category.values()):
+        for category in categories:
+            ids = remaining_by_category.get(category, [])
+            if not ids or need <= 0:
+                continue
+            sample.append(ids.pop(0))
+            need -= 1
+
+    return sample
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--shard-index", type=int, default=None)
+    parser.add_argument("--shard-count", type=int, default=None)
+    return parser
+
 
 def main() -> int:
+    args = build_arg_parser().parse_args()
     config = load_config()
-    secrets = load_secrets()
     ontology = load_ontology(config.environment.ontology_path)
     rule_base = load_safety_rules(config.environment.safety_rules_path)
-    examples_by_id = {e.id: e for e in load_dataset(config.dataset.path)}
-    client = AnthropicLLMClient(api_key=secrets.anthropic_api_key)
+    all_examples = load_dataset(config.dataset.path)
+    examples_by_id = {e.id: e for e in all_examples}
+    client = OllamaLLMClient(base_url=config.ollama.base_url, timeout=config.ollama.timeout, max_retries=config.ollama.max_retries)
+
+    sample_ids = build_sample(all_examples)
+    shard_suffix = ""
+    if args.shard_index is not None:
+        sample_ids = shard_slice(sample_ids, args.shard_index, args.shard_count)
+        shard_suffix = f"_shard{args.shard_index}of{args.shard_count}"
+    print(f"Sample size: {len(sample_ids)} unique instructions, 1 run each.")
 
     results = []
-    for ex_id in CURATED_IDS:
+    for ex_id in sample_ids:
         example = examples_by_id[ex_id]
         state = example.scene_context.to_world_state(ontology)
 
@@ -97,7 +164,7 @@ def main() -> int:
         print(f"[{ex_id}] gold={example.gold_label:8s} ungrounded={ungrounded.decision:7s}({u_mark})  "
               f"grounded={grounded.decision:7s}({g_mark})" + ("  <-- CHANGED" if row["changed"] else ""))
 
-    output_path = Path("results") / "grounding_experiment.json"
+    output_path = Path("results") / f"grounding_experiment{shard_suffix}.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)

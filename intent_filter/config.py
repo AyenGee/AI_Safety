@@ -38,6 +38,20 @@ class ModelsConfig(BaseModel):
     single_llm: str
 
 
+class OllamaConfig(BaseModel):
+    """Connection settings for `intent_filter.agents.client.OllamaLLMClient`.
+
+    `base_url` is normally left unset: on the cluster, `~/llm/env.sh` already
+    exports `OLLAMA_HOST` per Slurm job, and `OllamaLLMClient` reads that
+    directly. Only set this explicitly for local/interactive testing against
+    an Ollama instance that isn't on the default port, or via an SSH tunnel.
+    """
+
+    base_url: str | None = None
+    timeout: float = 300.0
+    max_retries: int = 2
+
+
 class AgentConfig(BaseModel):
     ambiguity_margin: float = 0.15
     max_refinement_attempts: int = 2
@@ -62,6 +76,7 @@ class AppConfig(BaseModel):
     environment: EnvironmentPathsConfig
     dataset: DatasetConfig
     models: ModelsConfig
+    ollama: OllamaConfig = OllamaConfig()
     agent: AgentConfig = AgentConfig()
     evaluation: EvaluationConfig = EvaluationConfig()
     logging: LoggingConfig = LoggingConfig()

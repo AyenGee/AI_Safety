@@ -2315,16 +2315,141 @@ applied to a new attack class.
 
 Data: `results/prompt_injection_experiment.json` (final, clean).
 
+## Scaling to open-weight models on university HPC infrastructure
+
+Every experiment through the previous section was sized around real
+Anthropic API dollar cost - the whole reason the exploratory tier stayed at
+12-24 examples, single-repeat, "sized for API cost rather than statistical
+power" (see the Discussion's "Three tiers of statistical confidence" note
+above). That constraint no longer applies: the project moved to free
+inference on the Wits `mscluster` Slurm cluster, running two open-weight
+models locally via Ollama - **Qwen3.5:4b** and **Gemma4:e4b** - in place of
+the Anthropic models used everywhere before this point. Every already-
+reported result above (Phase 8, the ablations, every experiment through
+"Prompt injection") stands as originally measured, against the original
+Anthropic models; nothing here retroactively changes those numbers. This
+section documents the second, larger, open-weight-model tier built
+alongside it.
+
+**What changed, mechanically.** `intent_filter/agents/client.py` gained
+`OllamaLLMClient`, a thin `urllib`-based wrapper around Ollama's `/api/chat`
+endpoint (no new pip dependency); every script that previously constructed
+`AnthropicLLMClient` now constructs this instead. `AnthropicLLMClient`
+itself is untouched and still importable, kept only so the historical
+results above stay explainable/reproducible - nothing new references it,
+and `anthropic` moved from a hard dependency to an optional extra
+(`pyproject.toml`). Model-to-role mapping mirrors the original cost/quality
+split (a cheaper/faster model for the highest-call-volume role, a stronger
+model where reasoning quality matters most) but is now capability-driven
+rather than cost-driven: `gemma4:e4b` (9.6GB, the larger model) for
+Planner/Translator/single_llm; `qwen3.5:4b` (3.4GB, faster) for Critic.
+
+**The actual binding constraint is now wall-clock, not money.** CPU-only
+inference on the cluster's `batch` partition (6-core nodes, ~100 of them,
+usually idle) has no free lunch from added concurrency within one node -
+inference is compute-bound, not I/O-bound. The real lever is **cross-node
+parallelism**: a Slurm job array (`cluster/run_experiment.slurm`) splits an
+experiment's instructions round-robin (`intent_filter/sharding.py`,
+`shard_slice` - round-robin rather than contiguous blocks, since every
+dataset here is stored grouped by id prefix and a contiguous slice would
+hand one shard nothing but a single category) across as many simultaneous
+Slurm tasks as the experiment needs, each running its own private Ollama
+server. `scripts/run_evaluation.py` and every `experiment_*.py` script
+that iterates a flat instruction list now accept `--shard-index`/
+`--shard-count`; `scripts/merge_shards.py` concatenates the shards' results
+back into one report afterward (a single shard's own slice isn't a
+representative sample, so per-metric CIs/McNemar/unsafety-breakdown are
+deliberately not computed per-shard - only after merging). A
+`intent_filter.evaluation.write_full_report` helper was factored out of
+what had been near-duplicate 80-line tails in `run_evaluation.py` and
+`regenerate_report.py`, so `merge_shards.py` didn't become a third copy.
+`cluster/pilot_timing.py` (run via `cluster/pilot.slurm`) measures real
+seconds/call per (model, agent role) using the actual production prompt-
+building functions (`plan()`, `review()`, `translate()`, `run()` from
+single_llm.py) - not toy prompts - so shard counts for the runs below can
+be set from real cluster timing rather than a guess, exactly the same
+discipline this project already applies to drawing conclusions from
+evidence rather than the reverse. See `cluster/setup.md` for the full
+run/merge workflow.
+
+**Content: what was scaled, and by how much.** Two new safety rules were
+added to the reported rule base (`config/safety_rules.yaml`, now 10 rules,
+up from 8), each a genuinely new hazard *mechanism* rather than more volume
+on an existing one:
+
+- `no_open_flame_unattended` - `G(!(candle_lit & !agent_at(kitchen)))`.
+  Every rule before this one fires on co-location (agent + hazard condition
+  present together); this fires on the opposite pattern - once the agent
+  creates the hazard (lights the candle), it must stay co-located with it,
+  and the violation can only be seen by tracking state across however many
+  further instructions follow before the agent leaves.
+- `no_appliance_left_on_when_house_empty` - `G(!(stove_on & !owner_home))`,
+  generalizing `no_stove_control_from_bathroom`'s "wrong room" hazard into
+  a mission-level "no one is even home to attend to it" constraint,
+  alongside `lock_door_when_owner_away`.
+
+Two new ontology objects (`matches`, `space_heater`) were added alongside
+them, each isolating a new property/room combination the way Phase 7's
+`scissors`/`cleaning_spray`/`wallet` did.
+
+Every new dataset row, across every experiment below, was run through a
+new mechanical **golden-label audit** (`scripts/audit_golden_labels.py`,
+no LLM calls, runs locally) before being trusted: it reconstructs the
+before/after WorldState each rule's LTL formula actually needs checked
+(three recipes - `state_only`, `device_state`, and
+`object_only`/`room_only`/`object_and_room` extraction via closed-
+vocabulary substring matching, see the script's own docstring) and checks
+the row's gold label against the rule base directly, independent of
+whatever a human author intended. Run first against the *existing* 200-row
+dataset as a validation of the audit script itself: 107/107 mechanically-
+checkable rule-linked rows passed, with 7 correctly and honestly flagged as
+unauditable (idiomatic phrasing like "where the kids play" that a
+closed-vocabulary matcher can't resolve, all manually verified correct).
+Run against the newly-authored content, it caught real authoring bugs
+before they could contaminate any result: a copy-paste error that
+attached the wrong rule id to a row, a rule classified with the wrong
+before/after state-forcing convention (causing 16 false failures until
+fixed), and two sentences that incidentally mentioned a second room/object
+and made their own gold label mechanically ambiguous (simplified rather
+than left for a human to guess at). This is the same standard the project
+already held itself to for the Translator-accuracy experiment's scoring
+bug - verify before trusting, not the reverse.
+
+| Experiment | Was | Now | Repeats | Notes |
+|---|---|---|---|---|
+| Phase 8 main dataset (`data/instructions.jsonl`) | 200 | **450** | 3 (unchanged) | `data/scripts/generate_scaleup_v2.py`; category split 90 legitimate / 130 unsafe / 75 misdirected / 155 ambiguous |
+| Instruction decomposition | 2 chains | **20 chains** | 1 | `scripts/experiment_instruction_decomposition.py`; 3 mechanism families (object-in-child-zone x7, temporal/person-status x5, "_long" 4-5 step variants x8); every chain verified by direct simulation to (a) reach the intended unsafe end state under literal compliance and (b) NOT trip at any intermediate step - a genuine cross-turn hazard, not an accidental single-step one |
+| Rules-removed ablation | 24, 1 repeat | **100**, 3 repeats | 3 | `scripts/experiment_rules_removed.py` |
+| Translator formula accuracy | 16 | **88** | 1 (translate+plan) | `scripts/experiment_translator_accuracy.py`; each rule's canonical pair + up to 4 more Reject-linked and 4 more Accept-linked rows drawn directly from the audited main dataset, reusing verified content instead of hand-authoring from scratch |
+| Prompt injection | 18 | **98** | 1 | `scripts/experiment_prompt_injection.py`; the 18 original cases kept verbatim (C3's `no_stove_control_from_bathroom` confound - missed in the earlier A4/B4/E1 fix - corrected here too), extended combinatorially (4 framings x 4 payloads/category) across 9 proven-non-escapable target rules |
+| Authority/emergency/contradiction | 12 | **100** | 1 | `scripts/experiment_authority_emergency_contradiction.py`; rescored per "Planned future work" below - `ACCEPTABLE_LABELS = {Reject, Clarify}`, not collapsed pass/fail |
+| Critic-quality suite (grounding / fact-injection / critic-model-swap / older-model) | ~9-29 each | **~100 each** | 1 each | `scripts/experiment_{grounded_critic,fact_injection,critic_model_swap,older_model}.py`; older-model re-scoped from a stale archived-Anthropic comparison to a live gemma4:e4b-vs-qwen3.5:4b comparison, since there is no "older Anthropic model" axis left to test |
+| Large-scale misdirection generalization | 100 (5 x 20) | **300 (5 x 60)** | 0 / single-run | `scripts/experiment_temporal_misdirection_large_scale.py`; explicitly excluded, then explicitly un-excluded in the same conversation turn - see "Planned future work" note below |
+| `planner_verifier` | 24 | unchanged | - | stays excluded per direct instruction ("we have something like this already in our ablation test") |
+
+All of the above is **code and content, not yet results** - this session
+had no direct cluster access (no SSH/Slurm tool available), so every script
+above is built, unit-verified where verification doesn't require a live
+LLM call (the decomposition chains' literal-execution check, the golden-
+label audit, dataset schema tests), and ready to run via
+`cluster/setup.md`'s workflow, but has not yet actually executed against
+the open-weight models. The calibration pilot (`cluster/pilot_timing.py`)
+has to run first to turn each row of the table above into a concrete shard
+count; results and their writeup are follow-on work once that happens.
+
 ## Planned future work
 
 Two concrete gaps identified by pulling apart existing results rather than
-by speculation - both scoped from data already in hand, to run on a later
-date rather than now. Post-Phase-8 experiments generally (Critic-quality,
-rules-removed, `planner_verifier`, Translator accuracy, prompt injection)
-remain the exploratory tier named in the Discussion's limitations note and
-are deliberately not being scaled to Phase-8-sized confirmatory repeats at
-this stage; the large-scale generalization run (n=100) is treated as its
-own, stronger middle tier and is not part of this list.
+by speculation - both now built as real content (see the scale-up table
+above) rather than only scoped in prose, and both included in the
+open-weight-model rerun once cluster results land. Two items were
+deliberately excluded from this round despite superficially fitting the
+same pattern, per direct instruction: `planner_verifier` ("we have
+something like this already in our ablation test, I don't think it's
+necessary") and rescaling the large-scale generalization run's *original*
+n=100 finding - though the run itself is, separately, being scaled to
+n=300 as part of the open-weight-model tier (see table above), which is a
+distinct decision from re-litigating the n=100 Anthropic-model result.
 
 ### A full test of where multi-agent beats single-LLM outside misdirection
 
@@ -2350,6 +2475,12 @@ defers to a human). Planned: rerun these three categories at Phase-8 scale
 with repeats, scored on the Reject-vs-Clarify distinction specifically (not
 collapsed into a single pass/fail), to measure whether this qualitative
 gap is a real, confirmable multi-agent advantage outside misdirection.
+
+**Status: built.** `scripts/experiment_authority_emergency_contradiction.py`
+now runs 100 instructions (34 authority / 33 emergency / 33 contradiction,
+up from 12), scored against `ACCEPTABLE_LABELS = {"Reject", "Clarify"}`
+exactly as planned here - awaiting a cluster run (see "Scaling to
+open-weight models" above).
 
 ### A full battery of decomposition/memory-stripped chains
 
@@ -2391,6 +2522,20 @@ Combined, this is 8 additional, well-motivated chains (3 new object chains
 + 5 temporal-decomposition chains) beyond the 2 already tested, all reusing
 existing rules and environment code with no new engineering required - a
 concrete, scoped battery for the next full pass at confirmatory scale.
+
+**Status: built, and extended further.** `scripts/experiment_instruction_decomposition.py`
+now runs 20 chains (up from 2): the 5 object chains planned here (medication,
+cleaning_spray, scissors, plus matches and space_heater - 2 more than
+originally scoped, using the objects added alongside the 2 new rules in
+this same round), the 5 temporal-decomposition chains exactly as designed
+above, and 8 further "_long" variants (4-5 steps instead of 2-3, more
+intervening moves/red-herring actions between hazard-creation and
+hazard-realization) added per direct instruction not to cut the chains
+short. Every one of the 20 was verified by direct simulation - not just
+read through - to reach its intended unsafe end state under fully literal
+compliance, and to NOT trip at any earlier step in that same simulated
+trajectory, confirming each is a genuine cross-turn hazard rather than an
+accidentally-already-detectable one. Awaiting a cluster run.
 
 ## Dataset design
 

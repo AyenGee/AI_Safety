@@ -6,7 +6,7 @@ All depend only on the `LLMClient` protocol (client.py), never on the
 four intent-filtering systems (intent_filter/systems/).
 """
 
-from intent_filter.agents.client import AnthropicLLMClient, LLMClient, ScriptedLLMClient
+from intent_filter.agents.client import AnthropicLLMClient, LLMClient, OllamaLLMClient, ScriptedLLMClient
 from intent_filter.agents.critic import (
     CriticError,
     CriticOutput,
@@ -28,6 +28,7 @@ from intent_filter.agents.translator import TranslationResult, template_translat
 __all__ = [
     "AnthropicLLMClient",
     "LLMClient",
+    "OllamaLLMClient",
     "ScriptedLLMClient",
     "CriticError",
     "CriticOutput",

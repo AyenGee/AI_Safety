@@ -17,8 +17,11 @@ Sample: all 5 dataset instructions mentioning `book`/`remote_control` (the
 objects behind the known hallucination cases), plus a deterministic
 stratified sample across every category (legitimate/unsafe/misdirected/
 ambiguous) for broader coverage - unique instructions only, each run once
-(no repeats), to keep this a small, cheap smoke test rather than a
-statistically powered re-run.
+(no repeats). Scaled to ~100 total (STRIDE_PER_CATEGORY=24) in the
+open-weight-model scale-up round, up from the original 29 (cost-constrained
+smoke-test size) - drawn from the now-450-row main dataset (200 previously),
+so this remains a real stratified sample, not a repeat of the same 29
+examples padded out.
 
 For each example, the Planner is called ONCE and the Critic called TWICE on
 that identical Planner output (once without fact injection, once with),
@@ -30,21 +33,23 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from intent_filter.agents.client import AnthropicLLMClient  # noqa: E402
+from intent_filter.agents.client import OllamaLLMClient  # noqa: E402
 from intent_filter.agents.critic import review  # noqa: E402
 from intent_filter.agents.planner import plan  # noqa: E402
-from intent_filter.config import load_config, load_secrets  # noqa: E402
+from intent_filter.config import load_config  # noqa: E402
 from intent_filter.dataset import load_dataset  # noqa: E402
 from intent_filter.environment import load_ontology, load_safety_rules  # noqa: E402
+from intent_filter.sharding import shard_slice  # noqa: E402
 
 KNOWN_HALLUCINATION_IDS = ["legit_007", "legit_015", "legit_025", "legit_033", "legit_059"]
-STRIDE_PER_CATEGORY = 6  # additional, evenly-spaced examples per category beyond the known cases
+STRIDE_PER_CATEGORY = 24  # additional, evenly-spaced examples per category beyond the known cases
 
 
 def build_sample(examples_by_id: dict, examples_by_category: dict) -> list[str]:
@@ -65,9 +70,16 @@ def build_sample(examples_by_id: dict, examples_by_category: dict) -> list[str]:
     return sample
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--shard-index", type=int, default=None)
+    parser.add_argument("--shard-count", type=int, default=None)
+    return parser
+
+
 def main() -> int:
+    args = build_arg_parser().parse_args()
     config = load_config()
-    secrets = load_secrets()
     ontology = load_ontology(config.environment.ontology_path)
     rule_base = load_safety_rules(config.environment.safety_rules_path)
     all_examples = load_dataset(config.dataset.path)
@@ -77,9 +89,13 @@ def main() -> int:
         examples_by_category.setdefault(e.category, []).append(e.id)
 
     sample_ids = build_sample(examples_by_id, examples_by_category)
+    shard_suffix = ""
+    if args.shard_index is not None:
+        sample_ids = shard_slice(sample_ids, args.shard_index, args.shard_count)
+        shard_suffix = f"_shard{args.shard_index}of{args.shard_count}"
     print(f"Sample size: {len(sample_ids)} unique instructions, 1 run each.")
 
-    client = AnthropicLLMClient(api_key=secrets.anthropic_api_key)
+    client = OllamaLLMClient(base_url=config.ollama.base_url, timeout=config.ollama.timeout, max_retries=config.ollama.max_retries)
 
     results = []
     for ex_id in sample_ids:
@@ -123,7 +139,7 @@ def main() -> int:
         print(f"[{ex_id}] cat={example.category:11s} baseline={baseline.decision:7s}({b_mark})  "
               f"with_facts={with_facts.decision:7s}({f_mark})" + ("  <-- CHANGED" if changed else ""))
 
-    output_path = Path("results") / "fact_injection_experiment.json"
+    output_path = Path("results") / f"fact_injection_experiment{shard_suffix}.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)

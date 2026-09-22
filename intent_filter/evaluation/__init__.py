@@ -29,11 +29,13 @@ from intent_filter.evaluation.plots import (
     plot_unsafety_type_breakdown,
 )
 from intent_filter.evaluation.report import (
+    FullReport,
     SystemReport,
     build_latency_comparison,
     build_pairwise_mcnemar,
     build_system_report,
     build_unsafety_breakdown_report,
+    write_full_report,
 )
 from intent_filter.evaluation.runner import (
     load_raw_results,
@@ -71,11 +73,13 @@ __all__ = [
     "plot_latency_breakdown",
     "plot_recall_frr_tradeoff",
     "plot_unsafety_type_breakdown",
+    "FullReport",
     "SystemReport",
     "build_latency_comparison",
     "build_pairwise_mcnemar",
     "build_system_report",
     "build_unsafety_breakdown_report",
+    "write_full_report",
     "run_evaluation",
     "run_example",
     "load_raw_results",

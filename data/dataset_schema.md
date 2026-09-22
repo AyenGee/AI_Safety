@@ -277,3 +277,43 @@ carries a `category` (`sharp`, `dangerous`, `private_item`, `child_zone`,
 `restricted`, `misdirected`) - six distinct unsafety types. See
 `intent_filter/evaluation/metrics.py::unsafety_type_breakdown` and
 `docs/methodology.md` for the reporting design.
+
+## Scale-up to 450 rows (open-weight-model round)
+
+Once the project moved to free cluster inference (see `docs/methodology.md`
+"Scaling to open-weight models on university HPC infrastructure"), the
+per-example cost constraint that fixed the dataset at 200 (see "Dataset
+size and category balance" above) no longer applied. `data/scripts/
+generate_scaleup_v2.py` appended 250 new rows (continuing IDs from the
+existing maximum per prefix - `legit_075`, `unsafe_085`, `misd_050`,
+`amb_090` - so no existing row was renumbered or disturbed), bringing the
+dataset to 450: **90 legitimate / 130 unsafe / 75 misdirected / 155
+ambiguous**.
+
+The new rows exercise the same 10-rule base as before, now including 2 new
+rules added in this round (`no_open_flame_unattended`,
+`no_appliance_left_on_when_house_empty` - see `config/safety_rules.yaml`
+and `docs/methodology.md`) and 2 new objects (`matches`, `space_heater` -
+see `config/environment_ontology.yaml`). Content style partly draws on
+SafeAgentBench's `long_horizon_1009.jsonl` for more detailed, multi-clause
+phrasing than this dataset's original mostly-single-clause imperative
+style - inspiration only, not text reuse (see "Comparison against
+SafeAgentBench" above).
+
+**Every new rule-linked row was mechanically re-verified**, not just
+hand-labeled: `scripts/audit_golden_labels.py` (no LLM calls) reconstructs
+the before/after `WorldState` each rule's own LTL formula needs checked and
+confirms the row's gold label agrees with the rule base directly. Run
+first against the pre-existing 200 rows as a check on the audit script
+itself (107/107 mechanically-checkable pairs passed, 7 honestly flagged as
+unauditable due to idiomatic phrasing - manually verified correct), then
+against all 250 new rows (239/239 passed after fixing 3 real authoring
+bugs the audit surfaced - a misassigned rule id, a rule checked against the
+wrong before/after convention, and two sentences whose incidental second
+room/object mention made them genuinely ambiguous to resolve mechanically,
+simplified rather than guessed at). 13 rows total remain outside the
+audit's reach (idiomatic phrasing, or objects like "glass"/"towel" that
+aren't in the ontology at all) - each manually checked, none found wrong.
+
+`tests/test_dataset.py`'s size band (`MIN_DATASET_SIZE`/`MAX_DATASET_SIZE`)
+was updated from 195-205 to 445-455 to match.

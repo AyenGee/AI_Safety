@@ -6,7 +6,11 @@ what scripts/run_evaluation.py serializes to results/<timestamp>/.
 
 from __future__ import annotations
 
+import csv
+import dataclasses
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from intent_filter.environment.rules import SafetyRuleBase
 from intent_filter.evaluation.metrics import (
@@ -16,6 +20,12 @@ from intent_filter.evaluation.metrics import (
     compute_system_metrics,
     latency_summary,
     unsafety_type_breakdown,
+)
+from intent_filter.evaluation.plots import (
+    plot_confusion_matrices,
+    plot_latency_breakdown,
+    plot_recall_frr_tradeoff,
+    plot_unsafety_type_breakdown,
 )
 from intent_filter.evaluation.stats import (
     ConfidenceInterval,
@@ -128,3 +138,107 @@ def build_unsafety_breakdown_report(
         system: unsafety_type_breakdown(records, rule_base, by=by)
         for system, records in records_by_system.items()
     }
+
+
+@dataclass(frozen=True)
+class FullReport:
+    reports: dict[str, SystemReport]
+    latency_comparison: LatencyComparisonResult
+    unsafety_breakdown: dict[str, dict[str, UnsafetyTypeStats]]
+    unsafety_breakdown_by_rule: dict[str, dict[str, UnsafetyTypeStats]]
+
+
+def write_full_report(
+    records_by_system: dict[str, list[RunRecord]],
+    rule_base: SafetyRuleBase,
+    confidence_level: float,
+    output_dir: Path,
+) -> FullReport:
+    """Aggregate + write every report artifact (metrics/stats/unsafety-breakdown/
+    plots) that a full evaluation run produces, given only the records grouped
+    by system - independent of how those records were obtained (a single live
+    run, a --resume, or several sharded runs merged together, see
+    scripts/merge_shards.py). `raw_results.jsonl` itself is not written here -
+    each caller owns that (a live run writes it incrementally; merge_shards.py
+    concatenates existing shard files) - this only produces everything derived
+    from it.
+
+    Factored out of scripts/run_evaluation.py and scripts/regenerate_report.py,
+    which previously each carried their own copy of this ~80-line tail.
+    """
+    output_dir = Path(output_dir)
+    plots_dir = output_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    reports = {
+        system: build_system_report(system, rows, confidence_level)
+        for system, rows in records_by_system.items()
+    }
+    mcnemar_results = build_pairwise_mcnemar(records_by_system)
+    latency_comparison = build_latency_comparison(records_by_system)
+    unsafety_breakdown = build_unsafety_breakdown_report(records_by_system, rule_base, by="category")
+    unsafety_breakdown_by_rule = build_unsafety_breakdown_report(records_by_system, rule_base, by="rule")
+
+    with open(output_dir / "metrics_summary.json", "w", encoding="utf-8") as f:
+        json.dump({s: dataclasses.asdict(r) for s, r in reports.items()}, f, indent=2, default=str)
+
+    with open(output_dir / "metrics_summary.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["system", "metric", "mean", "ci_lower", "ci_upper", "n_repeats"])
+        for system, report in reports.items():
+            for metric_name, ci in report.metric_cis.items():
+                writer.writerow([system, metric_name, ci.mean, ci.lower, ci.upper, ci.n])
+
+    with open(output_dir / "statistical_tests.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "mcnemar_pairwise": [dataclasses.asdict(m) for m in mcnemar_results],
+                "latency_comparison": dataclasses.asdict(latency_comparison),
+            },
+            f,
+            indent=2,
+            default=str,
+        )
+
+    with open(output_dir / "unsafety_breakdown.json", "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "by_category": {
+                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
+                    for s, stats in unsafety_breakdown.items()
+                },
+                "by_rule": {
+                    s: {k: dataclasses.asdict(v) for k, v in stats.items()}
+                    for s, stats in unsafety_breakdown_by_rule.items()
+                },
+            },
+            f,
+            indent=2,
+            default=str,
+        )
+
+    with open(output_dir / "unsafety_breakdown.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["system", "granularity", "unsafety_type", "n_examples", "n_caught", "catch_rate"])
+        for granularity, breakdown in (("category", unsafety_breakdown), ("rule", unsafety_breakdown_by_rule)):
+            for system, stats in breakdown.items():
+                for key, s in stats.items():
+                    writer.writerow([system, granularity, key, s.n_examples, s.n_caught, s.catch_rate])
+
+    pooled_metrics = {s: r.pooled_metrics for s, r in reports.items()}
+    plot_recall_frr_tradeoff(pooled_metrics, plots_dir / "recall_frr_tradeoff.png")
+    plot_latency_breakdown(records_by_system, plots_dir / "latency_breakdown.png")
+    plot_confusion_matrices(records_by_system, plots_dir / "confusion_matrices.png")
+    plot_unsafety_type_breakdown(unsafety_breakdown, plots_dir / "unsafety_type_breakdown.png")
+    plot_unsafety_type_breakdown(
+        unsafety_breakdown_by_rule,
+        plots_dir / "unsafety_type_breakdown_by_rule.png",
+        title="Catch rate by individual rule, per system",
+    )
+
+    return FullReport(
+        reports=reports,
+        latency_comparison=latency_comparison,
+        unsafety_breakdown=unsafety_breakdown,
+        unsafety_breakdown_by_rule=unsafety_breakdown_by_rule,
+    )
