@@ -14,13 +14,14 @@
 #SBATCH --partition=batch
 #SBATCH --cpus-per-task=6
 #SBATCH --mem=20G
-#SBATCH --time=00:30:00
+#SBATCH --time=06:00:00
 #SBATCH --output=cluster/logs/%x_%j.out
 #SBATCH --error=cluster/logs/%x_%j.err
 
 set -euo pipefail
 
 source ~/llm/env.sh
+source .venv/bin/activate
 
 ollama serve > "cluster/logs/ollama_pilot_${SLURM_JOB_ID}.log" 2>&1 &
 OLLAMA_PID=$!

@@ -26,7 +26,7 @@ Slurm job.
 
 ```bash
 sbatch cluster/pilot.slurm
-squeue -u $USER                          # wait for it to finish (~30 min cap)
+squeue -u $USER                          # wait for it to finish (6 h cap on CPU)
 cat cluster/logs/intent-filter-pilot_*.out
 cat cluster/logs/pilot_timing_result.json
 ```
@@ -88,6 +88,49 @@ per-shard.
 # From your own machine:
 scp -r eazubuike@<cluster-address>:~/intent-filter/results/<name>_merged ./results/
 ```
+
+## GPU route (biggpu) - the one actually used for the full runs
+
+CPU timing on `batch` (one `single_llm` call took ~565 s on a 6-core node)
+put the full Phase 8 run at thousands of node-hours, so the full runs go to
+the `biggpu` partition instead, as two job scripts submitted the same day:
+
+| Job | Script | What it runs |
+|---|---|---|
+| Phase 8 (2 halves, job array) | `cluster/gpu_phase8.slurm` | `scripts/run_evaluation.py`, split 2 ways, one GPU node per half |
+| Everything else | `cluster/gpu_experiments.slurm` | GPU timing pilot, then the 10 scaled-up experiments one after another |
+
+```bash
+cd ~/projects/AI_Safety
+mkdir -p cluster/logs
+sbatch cluster/gpu_phase8.slurm
+sbatch cluster/gpu_experiments.slurm
+squeue -u $USER          # PD (Resources)/(Priority) = waiting for a biggpu node
+```
+
+Both scripts: request up to 3 days (biggpu's cap), no `--gres` line (this
+cluster reports GRES `(null)`), print `nvidia-smi` and Ollama's GPU-detection
+line at the top of their `.out` file (check this first - it confirms the
+job really ran on a GPU), set `OLLAMA_CONTEXT_LENGTH=16384` so no prompt is
+silently truncated, and report a truncation-warning count at the end
+(should be 0).
+
+`gpu_experiments.slurm` ends its `.out` file with a per-experiment summary
+(exit status and minutes); each experiment's own output is in
+`cluster/logs/<experiment>_<jobid>.log`, and its results in
+`results/<name>_experiment.json`. Re-run only failed ones with e.g.
+`EXPERIMENTS="experiment_prompt_injection" sbatch cluster/gpu_experiments.slurm`.
+
+Once both Phase 8 halves have finished (login node):
+
+```bash
+source .venv/bin/activate
+python scripts/merge_shards.py --shard-dirs "results/2026*_shard*of2" --output results/phase8_gpu_merged
+```
+
+A half cut off by the time limit is resumed with its own run dir (printed
+near the top of its `.out` file):
+`EXTRA_ARGS="--resume results/<run_dir>" sbatch --array=<half> cluster/gpu_phase8.slurm`.
 
 ## Ground rules (repeating the cluster guide's, since they still apply)
 

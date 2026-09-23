@@ -40,6 +40,7 @@ set -euo pipefail
 : "${SHARD_COUNT:?Set SHARD_COUNT to match --array's size, e.g. --array=0-19 => SHARD_COUNT=20}"
 
 source ~/llm/env.sh
+source .venv/bin/activate
 
 ollama serve > "cluster/logs/ollama_${SLURM_JOB_ID}.log" 2>&1 &
 OLLAMA_PID=$!
