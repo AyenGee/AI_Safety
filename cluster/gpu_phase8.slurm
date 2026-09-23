@@ -50,6 +50,21 @@ echo "=== Phase 8 half $SLURM_ARRAY_TASK_ID/$SHARD_COUNT on $(hostname), started
 echo "=== OLLAMA_HOST=$OLLAMA_HOST"
 nvidia-smi || echo "WARNING: nvidia-smi failed - this node may have no usable GPU (inference would fall back to CPU)"
 
+# Copy Ollama (binary + its multi-GB CUDA libraries) to node-local disk before
+# starting it. Ollama's GPU discovery has a ~30 s watchdog per library; loading
+# those libraries from the network home directory can exceed it, which makes
+# Ollama silently fall back to CPU (seen on job 58422_0 on mscluster111:
+# "GPU discovery watchdog timed out" -> library=cpu). Falls back to ~/llm/ollama
+# if the copy fails.
+LOCAL_OLLAMA="${TMPDIR:-/tmp}/ollama_${SLURM_JOB_ID}"
+if mkdir -p "$LOCAL_OLLAMA" && cp -r ~/llm/ollama/. "$LOCAL_OLLAMA/"; then
+  export PATH="$LOCAL_OLLAMA/bin:$PATH"
+  echo "=== Using node-local Ollama copy: $(command -v ollama)"
+else
+  echo "WARNING: could not copy Ollama to node-local disk; using ~/llm/ollama (GPU discovery may time out)"
+  rm -rf "$LOCAL_OLLAMA"
+fi
+
 OLLAMA_LOG="cluster/logs/ollama_phase8_${SLURM_JOB_ID}.log"
 ollama serve > "$OLLAMA_LOG" 2>&1 &
 OLLAMA_PID=$!
@@ -77,4 +92,5 @@ grep -ci "truncat" "$OLLAMA_LOG" || true
 
 echo "=== Finished $(date) with exit status $STATUS"
 kill "$OLLAMA_PID" 2>/dev/null || true
+rm -rf "$LOCAL_OLLAMA" 2>/dev/null || true
 exit $STATUS
