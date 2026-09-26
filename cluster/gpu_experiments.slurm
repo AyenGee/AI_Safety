@@ -54,6 +54,9 @@ source .venv/bin/activate
 # Same Ollama settings as cluster/gpu_phase8.slurm (see comments there).
 export OLLAMA_CONTEXT_LENGTH=16384
 export OLLAMA_KEEP_ALIVE=-1
+# Write Python output to the log files immediately (not in buffered chunks),
+# so progress can be followed with tail while an experiment is running.
+export PYTHONUNBUFFERED=1
 
 echo "=== Experiments job on $(hostname), started $(date)"
 echo "=== OLLAMA_HOST=$OLLAMA_HOST"

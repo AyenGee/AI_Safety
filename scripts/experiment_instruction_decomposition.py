@@ -55,6 +55,15 @@ can Accept "go into the child's room" by planning to extinguish the candle
 first, then move) - using the system's real proposed actions is the only
 way to know what world state its own Accept actually leads to.
 
+Physically invalid accepted plans: a system can Accept with a plan the
+environment cannot execute (e.g. "put down the toy" when the toy was never
+picked up - first seen on the cluster run, gate_temporal_long). The non-LTL
+systems never simulate their own plan, so nothing upstream stops this. Such
+a step is recorded with `plan_invalid` (the precondition error) and the
+world state is left UNCHANGED - the robot could not have carried the plan
+out, so no hazard it describes was actually created. Results are also
+written after every chain, so a crash loses at most the chain in progress.
+
 Usage:
     python scripts/experiment_instruction_decomposition.py
 """
@@ -76,6 +85,7 @@ from intent_filter.environment import (  # noqa: E402
     load_ontology,
     load_safety_rules,
 )
+from intent_filter.environment.actions import InvalidActionError  # noqa: E402
 from intent_filter.environment.rules import SafetyRuleBase  # noqa: E402
 from intent_filter.systems import SYSTEMS  # noqa: E402
 
@@ -264,27 +274,36 @@ def run_chain(chain_name: str, chain: dict, system_name: str, ontology, ctx) -> 
     step_results = []
     for instruction in chain["steps"]:
         result = SYSTEMS[system_name](instruction, state, ctx)
+        plan_invalid = None
+        if result.decision == "Accept":
+            try:
+                state = apply_sequence(state, list(result.chosen_actions), ontology)[-1]
+            except InvalidActionError as exc:
+                # Unexecutable plan: state stays unchanged (see module docstring).
+                plan_invalid = str(exc)
         step_results.append(
             {
                 "instruction": instruction,
                 "decision": result.decision,
                 "rationale": result.rationale,
                 "chosen_actions": [repr(a) for a in result.chosen_actions],
+                "plan_invalid": plan_invalid,
             }
         )
-        if result.decision == "Accept":
-            state = apply_sequence(state, list(result.chosen_actions), ontology)[-1]
     reached_unsafe = check(state, ontology)
 
     compound_state = initial_state(ontology, issuing_role="owner").with_updates(**start_overrides)
     compound_result = SYSTEMS[system_name](chain["compound"], compound_state, ctx)
+    compound_plan_invalid = None
+    compound_unsafe = False
     if compound_result.decision == "Accept":
-        compound_end_state = apply_sequence(
-            compound_state, list(compound_result.chosen_actions), ontology
-        )[-1]
-        compound_unsafe = check(compound_end_state, ontology)
-    else:
-        compound_unsafe = False
+        try:
+            compound_end_state = apply_sequence(
+                compound_state, list(compound_result.chosen_actions), ontology
+            )[-1]
+            compound_unsafe = check(compound_end_state, ontology)
+        except InvalidActionError as exc:
+            compound_plan_invalid = str(exc)
 
     return {
         "sequential_steps": step_results,
@@ -294,8 +313,10 @@ def run_chain(chain_name: str, chain: dict, system_name: str, ontology, ctx) -> 
             "decision": compound_result.decision,
             "rationale": compound_result.rationale,
             "chosen_actions": [repr(a) for a in compound_result.chosen_actions],
+            "plan_invalid": compound_plan_invalid,
         },
         "compound_reached_unsafe_end_state": compound_unsafe,
+        "sequential_invalid_plan_steps": sum(1 for s in step_results if s["plan_invalid"]),
     }
 
 
@@ -318,6 +339,9 @@ def main() -> int:
         translation_max_retries=config.agent.translation_max_retries,
     )
 
+    output_path = Path("results") / "instruction_decomposition_experiment.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     all_results: dict[str, dict[str, dict]] = {}
     for chain_name, chain in CHAINS.items():
         print(f"=== {chain_name} chain (rules: {chain['rule_ids']}) ===")
@@ -329,16 +353,21 @@ def main() -> int:
             unsafe = result["sequential_reached_unsafe_end_state"]
             compound_decision = result["compound"]["decision"]
             compound_unsafe = result["compound_reached_unsafe_end_state"]
+            invalid_note = ""
+            if result["sequential_invalid_plan_steps"] or result["compound"]["plan_invalid"]:
+                invalid_note = (
+                    f"   [invalid accepted plans: {result['sequential_invalid_plan_steps']} step(s)"
+                    f"{', compound' if result['compound']['plan_invalid'] else ''}]"
+                )
             print(
                 f"  {system_name:16s} sequential: {seq_marks}  [unsafe end state: {unsafe}]   "
-                f"compound: {compound_decision}  [unsafe end state: {compound_unsafe}]"
+                f"compound: {compound_decision}  [unsafe end state: {compound_unsafe}]{invalid_note}"
             )
         print()
+        # Save after every chain so a crash never loses finished chains.
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=2)
 
-    output_path = Path("results") / "instruction_decomposition_experiment.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(all_results, f, indent=2)
     print(f"Full results written to {output_path}")
 
     return 0

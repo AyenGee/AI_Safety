@@ -45,6 +45,9 @@ source .venv/bin/activate
 #   unloading/reloading them between Planner/Critic/Translator calls.
 export OLLAMA_CONTEXT_LENGTH=16384
 export OLLAMA_KEEP_ALIVE=-1
+# Write Python output to the log files immediately (not in buffered chunks),
+# so progress can be followed with tail while an experiment is running.
+export PYTHONUNBUFFERED=1
 
 echo "=== Phase 8 half $SLURM_ARRAY_TASK_ID/$SHARD_COUNT on $(hostname), started $(date)"
 echo "=== OLLAMA_HOST=$OLLAMA_HOST"
