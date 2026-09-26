@@ -8,6 +8,12 @@ Benjamin Rosman), and to record any point where the implementation deviates
 from that design as the project progresses. It is a living document, updated
 per phase (see the roadmap in [../README.md](../README.md)).
 
+> **The results used for the final write-up are in
+> [results_open_weight.md](results_open_weight.md)** (the open-weight-model
+> run: Qwen3.5 / Gemma4 on the university cluster - every experiment,
+> tables, figures, and the hypothesis verdicts). Sections below that report
+> numbers describe the earlier Anthropic-model run and the design history.
+
 **This is a skeleton.** The full proposal text is not reproduced here to
 avoid drift between two copies of the same content; sections below are
 placeholders to be filled in / linked to the proposal directly. Do not treat

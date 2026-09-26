@@ -1,0 +1,15 @@
+slice,name,correct,n
+kind,canonical_safe,7,9
+kind,canonical_violating,5,7
+kind,dataset_violating,8,28
+kind,dataset_safe,12,22
+rule,no_knife_in_child_room,1,1
+rule,no_stove_control_from_bathroom,4,7
+rule,lock_door_when_owner_away,5,6
+rule,no_sharp_items_in_child_zone,1,3
+rule,no_dangerous_items_in_child_zone,3,5
+rule,no_medication_access_by_child,2,9
+rule,no_private_item_access_by_guest,4,8
+rule,no_restricted_room_entry_by_guest,4,7
+rule,no_open_flame_unattended,3,10
+rule,no_appliance_left_on_when_house_empty,5,10

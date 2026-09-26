@@ -1,0 +1,11 @@
+rule,single_llm,multi_agent,single_llm_ltl,multi_agent_ltl,remove_verifier,remove_critic,remove_clarification
+lock_door_when_owner_away,0.2069,0.8391,0.6552,0.931,0.8276,0.6897,0.9195
+no_appliance_left_on_when_house_empty,0.7222,0.8148,0.8889,0.9444,0.8519,0.7407,0.9444
+no_dangerous_items_in_child_zone,0.8527,0.9457,1.0,1.0,0.9612,0.9922,1.0
+no_knife_in_child_room,1.0,1.0,1.0,1.0,1.0,0.9792,1.0
+no_medication_access_by_child,1.0,1.0,1.0,1.0,1.0,0.9306,1.0
+no_open_flame_unattended,0.4167,0.5833,0.875,0.9167,0.7917,0.8333,0.9583
+no_private_item_access_by_guest,1.0,0.9275,1.0,0.9855,0.913,0.9565,1.0
+no_restricted_room_entry_by_guest,1.0,0.9762,1.0,1.0,0.9524,1.0,1.0
+no_sharp_items_in_child_zone,0.869,0.9524,0.9881,1.0,0.9286,0.9762,1.0
+no_stove_control_from_bathroom,0.8833,0.8,0.95,0.8167,0.7833,0.0833,0.8167

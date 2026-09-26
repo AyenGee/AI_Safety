@@ -1,0 +1,8 @@
+experiment,arm_a,arm_b,a_correct_or_pct,b_correct_or_pct,n,flips
+Grounded Critic prompt (same model),Original prompt,Grounded prompt,69,71,99,26
+Fact-injected Critic prompt (same model),Original prompt,Facts injected,68,70,101,23
+Critic model swap (same prompt),qwen3.5:4b (default),gemma4:e4b,73,78,100,20
+Planner/Translator/single_llm model swap: single_llm,gemma4:e4b (default),qwen3.5:4b,77,81,100,
+Planner/Translator/single_llm model swap: multi_agent,gemma4:e4b (default),qwen3.5:4b,79,60,100,
+Planner/Translator/single_llm model swap: single_llm_ltl,gemma4:e4b (default),qwen3.5:4b,87,84,100,
+Planner/Translator/single_llm model swap: multi_agent_ltl,gemma4:e4b (default),qwen3.5:4b,80,67,100,

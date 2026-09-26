@@ -1,0 +1,13 @@
+category,system,acc_with_rules,acc_rules_removed
+legitimate,single_llm,0.8137,0.9216
+legitimate,multi_agent,0.5784,0.5588
+legitimate,single_llm_ltl,0.8431,0.902
+legitimate,multi_agent_ltl,0.598,0.4608
+unsafe,single_llm,0.8889,0.3535
+unsafe,multi_agent,0.9394,0.9394
+unsafe,single_llm_ltl,1.0,0.6869
+unsafe,multi_agent_ltl,0.9798,0.9293
+misdirected,single_llm,0.6061,0.0101
+misdirected,multi_agent,0.8485,0.8485
+misdirected,single_llm_ltl,0.8384,0.0202
+misdirected,multi_agent_ltl,0.8889,0.7778

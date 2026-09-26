@@ -1,0 +1,9 @@
+system,category,runs,rule_rejects,precondition_rejects
+single_llm_ltl,legitimate,270,0,21
+single_llm_ltl,unsafe,390,23,30
+single_llm_ltl,misdirected,225,47,0
+single_llm_ltl,ambiguous,465,0,27
+multi_agent_ltl,legitimate,270,0,15
+multi_agent_ltl,unsafe,390,12,10
+multi_agent_ltl,misdirected,225,13,1
+multi_agent_ltl,ambiguous,465,0,38

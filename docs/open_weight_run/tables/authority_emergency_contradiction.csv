@@ -1,0 +1,17 @@
+group,system,n,Accept,Reject,Clarify
+ALL,single_llm,100,12,80,8
+ALL,multi_agent,100,13,81,6
+ALL,single_llm_ltl,100,9,83,8
+ALL,multi_agent_ltl,100,10,75,15
+auth,single_llm,34,1,33,0
+auth,multi_agent,34,1,32,1
+auth,single_llm_ltl,34,1,33,0
+auth,multi_agent_ltl,34,1,25,8
+emg,single_llm,33,9,24,0
+emg,multi_agent,33,5,27,1
+emg,single_llm_ltl,33,6,27,0
+emg,multi_agent_ltl,33,3,28,2
+contra,single_llm,33,2,23,8
+contra,multi_agent,33,7,22,4
+contra,single_llm_ltl,33,2,23,8
+contra,multi_agent_ltl,33,6,22,5

@@ -1,0 +1,166 @@
+{
+  "phase8": {
+    "single_llm": {
+      "recall": 0.837,
+      "specificity": 0.7805,
+      "precision": 0.626,
+      "f1": 0.7163,
+      "frr": 0.163,
+      "clarify_acc": 0.7032,
+      "unsafe_missed": 0.1308,
+      "misdirected_missed": 0.3733
+    },
+    "multi_agent": {
+      "recall": 0.5963,
+      "specificity": 0.8959,
+      "precision": 0.7156,
+      "f1": 0.6505,
+      "frr": 0.4037,
+      "clarify_acc": 0.3634,
+      "unsafe_missed": 0.0974,
+      "misdirected_missed": 0.1156
+    },
+    "single_llm_ltl": {
+      "recall": 0.7778,
+      "specificity": 0.9301,
+      "precision": 0.83,
+      "f1": 0.8031,
+      "frr": 0.2222,
+      "clarify_acc": 0.6925,
+      "unsafe_missed": 0.0179,
+      "misdirected_missed": 0.16
+    },
+    "multi_agent_ltl": {
+      "recall": 0.537,
+      "specificity": 0.9626,
+      "precision": 0.8631,
+      "f1": 0.6621,
+      "frr": 0.463,
+      "clarify_acc": 0.3484,
+      "unsafe_missed": 0.0359,
+      "misdirected_missed": 0.04
+    },
+    "remove_verifier": {
+      "recall": 0.6148,
+      "specificity": 0.8992,
+      "precision": 0.7281,
+      "f1": 0.6667,
+      "frr": 0.3852,
+      "clarify_acc": 0.3505,
+      "unsafe_missed": 0.0897,
+      "misdirected_missed": 0.12
+    },
+    "remove_critic": {
+      "recall": 0.8852,
+      "specificity": 0.8211,
+      "precision": 0.6848,
+      "f1": 0.7722,
+      "frr": 0.1148,
+      "clarify_acc": 0.0903,
+      "unsafe_missed": 0.1769,
+      "misdirected_missed": 0.1822
+    },
+    "remove_clarification": {
+      "recall": 0.5556,
+      "specificity": 0.9642,
+      "precision": 0.8721,
+      "f1": 0.6787,
+      "frr": 0.4444,
+      "clarify_acc": 0.0387,
+      "unsafe_missed": 0.0308,
+      "misdirected_missed": 0.0444
+    }
+  },
+  "verifier": {
+    "single_llm_ltl|legitimate": {
+      "n": 270,
+      "rule": 0,
+      "precond": 21
+    },
+    "single_llm_ltl|unsafe": {
+      "n": 390,
+      "rule": 23,
+      "precond": 30
+    },
+    "single_llm_ltl|misdirected": {
+      "n": 225,
+      "rule": 47,
+      "precond": 0
+    },
+    "single_llm_ltl|ambiguous": {
+      "n": 465,
+      "rule": 0,
+      "precond": 27
+    },
+    "multi_agent_ltl|legitimate": {
+      "n": 270,
+      "rule": 0,
+      "precond": 15
+    },
+    "multi_agent_ltl|unsafe": {
+      "n": 390,
+      "rule": 12,
+      "precond": 10
+    },
+    "multi_agent_ltl|misdirected": {
+      "n": 225,
+      "rule": 13,
+      "precond": 1
+    },
+    "multi_agent_ltl|ambiguous": {
+      "n": 465,
+      "rule": 0,
+      "precond": 38
+    }
+  },
+  "sensitivity": {
+    "single_llm": [
+      0.837,
+      0.8824,
+      0.7032,
+      0.8074
+    ],
+    "multi_agent": [
+      0.5963,
+      0.6157,
+      0.3634,
+      0.4099
+    ],
+    "single_llm_ltl": [
+      0.7778,
+      0.8196,
+      0.6925,
+      0.7951
+    ],
+    "multi_agent_ltl": [
+      0.537,
+      0.5412,
+      0.3484,
+      0.3877
+    ],
+    "remove_verifier": [
+      0.6148,
+      0.6235,
+      0.3505,
+      0.3951
+    ],
+    "remove_critic": [
+      0.8852,
+      0.898,
+      0.0903,
+      0.1012
+    ],
+    "remove_clarification": [
+      0.5556,
+      0.5804,
+      0.0387,
+      0.0444
+    ]
+  },
+  "translator": {
+    "accuracy": 0.48484848484848486,
+    "n_scored": 66,
+    "n_plan_invalid_excluded": 22
+  },
+  "decomposition_chains_recovered": 20
+}

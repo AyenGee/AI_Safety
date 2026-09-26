@@ -1,0 +1,9 @@
+metric,system,anthropic_pooled,open_weight_pooled
+recall,single_llm,0.9833,0.8167
+recall,multi_agent,0.8667,0.575
+recall,single_llm_ltl,0.9667,0.8417
+recall,multi_agent_ltl,0.8417,0.5583
+specificity,single_llm,0.9704,0.8074
+specificity,multi_agent,0.9815,0.937
+specificity,single_llm_ltl,0.9704,0.937
+specificity,multi_agent_ltl,0.9889,0.9815

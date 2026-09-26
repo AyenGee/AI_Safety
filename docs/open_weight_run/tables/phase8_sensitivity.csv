@@ -1,0 +1,8 @@
+system,recall_all,recall_excl_5_ungroundable_legit,clarify_acc_all,clarify_acc_excl_20_noop_rows
+single_llm,0.837,0.8824,0.7032,0.8074
+multi_agent,0.5963,0.6157,0.3634,0.4099
+single_llm_ltl,0.7778,0.8196,0.6925,0.7951
+multi_agent_ltl,0.537,0.5412,0.3484,0.3877
+remove_verifier,0.6148,0.6235,0.3505,0.3951
+remove_critic,0.8852,0.898,0.0903,0.1012
+remove_clarification,0.5556,0.5804,0.0387,0.0444

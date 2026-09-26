@@ -1,0 +1,7 @@
+contrast,recall_pp,recall_lo,recall_hi,specificity_pp,specificity_lo,specificity_hi,f1_pp,f1_lo,f1_hi,clarify_acc_pp,clarify_acc_lo,clarify_acc_hi,unsafe_missed_pp,unsafe_missed_lo,unsafe_missed_hi,misdirected_missed_pp,misdirected_missed_lo,misdirected_missed_hi
+Multi-Agent  vs  Single-LLM,-24.07,-31.85,-16.3,11.54,6.67,16.59,-6.58,-12.79,-0.41,-33.98,-39.78,-28.17,-3.33,-8.72,1.79,-25.78,-35.56,-16.44
+Single-LLM+LTL  vs  Single-LLM,-5.93,-12.22,0.0,14.96,10.41,19.68,8.67,3.46,13.72,-1.08,-2.8,0.43,-11.28,-16.41,-6.41,-21.33,-30.67,-12.44
+Multi-Agent+LTL  vs  Multi-Agent,-5.93,-14.44,2.22,6.67,4.07,9.27,1.16,-5.92,7.67,-1.51,-6.24,3.23,-6.15,-9.49,-2.82,-7.56,-11.56,-3.56
+Multi-Agent+LTL  vs  no-verifier ablation,-7.78,-15.56,0.37,6.34,3.58,8.94,-0.46,-7.4,5.94,-0.22,-5.16,4.52,-5.38,-8.97,-2.05,-8.0,-12.0,-4.0
+Multi-Agent+LTL  vs  Single-LLM+LTL,-24.07,-32.59,-15.55,3.25,0.81,5.85,-14.1,-21.02,-7.46,-34.41,-40.65,-28.17,1.79,-0.51,4.1,-12.0,-17.78,-6.67
+no-Critic ablation  vs  Multi-Agent,28.89,20.0,37.78,-7.48,-12.36,-2.76,12.17,5.15,19.19,-27.31,-32.9,-22.15,7.95,2.05,14.36,6.67,0.0,14.22
